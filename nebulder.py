@@ -27,10 +27,11 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v0.0.1'
+VERSION = 'v0.0.2'
 
 
 import argparse, os, subprocess, yaml
+from pathlib import Path
 
 
 def sh(command, arguments='', inp=''):
@@ -53,11 +54,39 @@ def create_remove_script(name):
 
 
 def process_config(config, dir):
+
+    def generate_certs(path, device):
+        print(device['name'])
+        os.makedirs(path + device['name'], exist_ok=True)
+        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', f"{path + device['name']}/host.crt", '-out-key', f"{path + device['name']}/host.key", '-ca-crt', f'{dir}/ca.crt', '-ca-key', f'{dir}/ca.key', '-ip', f"{device['nebula_ip']}/32"]
+        if 'groups' in device.keys():
+            arguments.append('-groups')
+            arguments.append(','.join(device['groups']))
+        subprocess.run(arguments)
+        subprocess.run(['cp', f'{dir}/ca.crt', f"{path + device['name']}/"])
+
+
+    with open(Path(__file__).resolve().parent / 'res/config.yaml') as f:
+        base = yaml.load(f, Loader=yaml.loader.SafeLoader)
     with open(config) as f:
         mesh = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
-    dir += '/' + mesh['NetworkName']
+    dir += '/' + mesh['organization']
     os.makedirs(dir, exist_ok=True)
+
+    # generate certificate authority
+    subprocess.run(['nebula-cert', 'ca', '-name', mesh['organization'], '-out-crt', f'{dir}/ca.crt', '-out-key', f'{dir}/ca.key'])
+
+    os.makedirs(dir + '/lighthouses', exist_ok=True)
+    for lighthouse in mesh['lighthouses']:
+        generate_certs(dir + '/lighthouses/', lighthouse)
+
+    os.makedirs(dir + '/nodes', exist_ok=True)
+    for node in mesh['nodes']:
+        generate_certs(dir + '/nodes/', node)
+
+
+    return
 
     for device in mesh.keys():
         if device == 'NetworkName':
