@@ -78,67 +78,57 @@ def process_config(config, dir):
     subprocess.run(['nebula-cert', 'ca', '-name', mesh['organization'], '-out-crt', f'{dir}/ca.crt', '-out-key', f'{dir}/ca.key'])
 
     os.makedirs(dir + '/lighthouses', exist_ok=True)
+    relays = {}
+    ips = []
     for lighthouse in mesh['lighthouses']:
         generate_certs(dir + '/lighthouses/', lighthouse)
+        conf = base.copy()
+        ips.append(lighthouse['nebula_ip'])
+        conf['tun'] = { 'dev': mesh['tun_device'] }
+        conf['listen'] = { 'port': lighthouse['listen_port'] }
+        conf['lighthouse'] = { 'am_lighthouse': True }
+        conf['relay'] = { 'am_relay': True, 'use_relays': False }
+        if 'preferred_ranges' in lighthouse.keys():
+            conf['preferred_ranges'] = lighthouse['preferred_ranges']
+        host_map = []
+        for ip in lighthouse['public_ip']:
+            host_map.append(ip)
+        relays[lighthouse['nebula_ip']] = host_map
+        with open(f"{dir}/lighthouses/{lighthouse['name']}/config.yaml", 'w', encoding='UTF-8') as f:
+            yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
+        conf.clear()
 
     os.makedirs(dir + '/nodes', exist_ok=True)
     for node in mesh['nodes']:
         generate_certs(dir + '/nodes/', node)
-
-
+        conf = base.copy()
+        conf['tun'] = { 'dev': mesh['tun_device'] }
+        conf['static_host_map'] = {}
+        for host in relays.keys():
+            conf['static_host_map'][host] = list(relays[host])
+        conf['lighthouse'] = { 'am_lighthouse': False, 'hosts': list(ips) }
+        if 'advertise_addrs' in node.keys():
+            conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
+        conf['relay'] = { 'relays': ips }
+        if 'preferred_ranges' in node.keys():
+            conf['preferred_ranges'] = node['preferred_ranges']
+        # print(conf)
+        with open(f"{dir}/nodes/{node['name']}/config.yaml", 'w', encoding='UTF-8') as f:
+            yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
+        conf.clear()
     return
 
-    for device in mesh.keys():
-        if device == 'NetworkName':
-            continue
-        os.makedirs(dir + '/' + device, exist_ok=True)
-        if 'PrivateKey' not in mesh[device].keys():
-            mesh[device]['PrivateKey'] = sh('wg', 'genkey').rstrip('\n')
-            mesh[device]['PublicKey'] = sh('wg', 'pubkey', mesh[device]['PrivateKey']).rstrip('\n')
-
-    for device in mesh.keys():
-        if device == 'NetworkName':
-            continue
-        if 'AllowedIPs' in mesh[device].keys():
-            subnet = '/24'
-            routing = f"\n\n# IP forwarding\nPreUp = sysctl -w net.ipv4.ip_forward=1\n\n# IP masquerading\nPreUp = iptables -t mangle -A PREROUTING -i {mesh['NetworkName']} -j MARK --set-mark 0x30\nPreUp = iptables -t nat -A POSTROUTING ! -o {mesh['NetworkName']} -m mark --mark 0x30 -j MASQUERADE\nPostDown = iptables -t mangle -D PREROUTING -i {mesh['NetworkName']} -j MARK --set-mark 0x30\nPostDown = iptables -t nat -D POSTROUTING ! -o {mesh['NetworkName']} -m mark --mark 0x30 -j MASQUERADE"
-        else:
-            subnet = '/32'
-            routing = ''
-        conf = f"[Interface]\n# Name: {device}\nAddress = {mesh[device]['Address']}{subnet}\nPrivateKey = {mesh[device]['PrivateKey']}"
-        if 'ListenPort' in mesh[device].keys():
-            conf += f"\nListenPort = {mesh[device]['ListenPort']}{routing}"
-        else:
-            mesh[device]['ListenPort'] = False
-        if 'DNS' in mesh[device].keys():
-            conf += f"\nDNS = {mesh[device]['DNS']}"
-        for peer in mesh.keys():
-            if peer == 'NetworkName' or peer == device:
-                continue
-            if 'Endpoint' not in mesh[peer].keys() and 'AllowedIPs' not in mesh[device].keys():
-                continue
-            conf += f"\n\n[Peer]\n# Name: {peer}\nPublicKey = {mesh[peer]['PublicKey']}"
-            if 'Endpoint' in mesh[peer].keys():
-                conf += f"\nEndpoint = {mesh[peer]['Endpoint']}:{mesh[peer]['ListenPort']}"
-
-            if 'AllowedIPs' in mesh[peer].keys():
-                conf += f"\nAllowedIPs = {mesh[peer]['AllowedIPs']}"
-            else:
-                conf += f"\nAllowedIPs = {mesh[peer]['Address']}/32"
-            if 'PersistentKeepalive' in mesh[device].keys():
-                conf += f"\nPersistentKeepalive = {mesh[device]['PersistentKeepalive']}"
-
-        file_dir = f"{dir}/{device}/"
-        with open(f"{file_dir}{mesh['NetworkName']}.conf", 'w', encoding='UTF-8') as f:
-            f.write(conf)
-            os.chmod(f"{file_dir}{mesh['NetworkName']}.conf", mode=0o600)
-        with open(file_dir + f"deploy_{device}.sh", 'w', encoding='UTF-8') as f:
-            f.write(create_deploy_script(mesh['NetworkName'], mesh[device]['ListenPort']))
-            os.chmod(f'{file_dir}deploy_{device}.sh', mode=0o740)
-        with open(file_dir + f"remove_{device}.sh", 'w', encoding='UTF-8') as f:
-            f.write(create_remove_script(mesh['NetworkName']))
-            os.chmod(f'{file_dir}remove_{device}.sh', mode=0o740)
-        print(f'Generated config and scripts for {device}')
+    file_dir = f"{dir}/{device}/"
+    with open(f"{file_dir}{mesh['NetworkName']}.conf", 'w', encoding='UTF-8') as f:
+        f.write(conf)
+        os.chmod(f"{file_dir}{mesh['NetworkName']}.conf", mode=0o600)
+    with open(file_dir + f"deploy_{device}.sh", 'w', encoding='UTF-8') as f:
+        f.write(create_deploy_script(mesh['NetworkName'], mesh[device]['ListenPort']))
+        os.chmod(f'{file_dir}deploy_{device}.sh', mode=0o740)
+    with open(file_dir + f"remove_{device}.sh", 'w', encoding='UTF-8') as f:
+        f.write(create_remove_script(mesh['NetworkName']))
+        os.chmod(f'{file_dir}remove_{device}.sh', mode=0o740)
+    print(f'Generated config and scripts for {device}')
 
 
 parser = argparse.ArgumentParser(description="Generate Nebula configs based on a network outline")
