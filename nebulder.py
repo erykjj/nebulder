@@ -27,19 +27,19 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v0.0.2'
+VERSION = 'v0.0.3'
 
 
 import argparse, copy, os, re, subprocess, yaml
 from pathlib import Path
 
 
-def sh(command, arguments='', inp=''):
-    res = subprocess.run([command, arguments], stdout=subprocess.PIPE, stderr=subprocess.PIPE, input=inp.encode('utf-8'))
-    if res.stderr.decode('utf-8'):
-        print(res.stderr.decode('utf-8'))
-        exit()
-    return res.stdout.decode('utf-8')
+# def sh(command, arguments='', inp=''):
+#     res = subprocess.run([command, arguments], stdout=subprocess.PIPE, stderr=subprocess.PIPE, input=inp.encode('utf-8'))
+#     if res.stderr.decode('utf-8'):
+#         print(res.stderr.decode('utf-8'))
+#         exit()
+#     return res.stdout.decode('utf-8')
 
 
 def create_deploy_script(name, port):
@@ -56,7 +56,10 @@ def create_remove_script(name):
 def process_config(config, dir):
 
     def generate_certs(path, device):
-        print(device['name'])
+        print(f"\nProcessing device '{device['name']}'...")
+        if os.path.isfile(f"{path + device['name']}/host.crt") or os.path.isfile(f"{path + device['name']}/host.key"):
+            print(f"...Keys already exist. Skipping key generation.")
+            return
         os.makedirs(path + device['name'], exist_ok=True)
         arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', f"{path + device['name']}/host.crt", '-out-key', f"{path + device['name']}/host.key", '-ca-crt', f'{dir}/ca.crt', '-ca-key', f'{dir}/ca.key', '-ip', f"{device['nebula_ip']}/32"]
         if 'groups' in device.keys():
@@ -65,7 +68,7 @@ def process_config(config, dir):
         subprocess.run(arguments)
         subprocess.run(['cp', f'{dir}/ca.crt', f"{path + device['name']}/"])
 
-    def add_common(node):
+    def add_common(node, conf):
 
         def process_firewall(firewall):
             processed = []
@@ -95,6 +98,45 @@ def process_config(config, dir):
         if 'inbound_firewall' in node.keys():
             conf['firewall']['inbound'] += process_firewall(node['inbound_firewall'])
 
+    def process_lighthouses():
+        if 'lighthouses' not in mesh.keys():
+            print('*** No lighthouse defined!! ***')
+            exit()
+        os.makedirs(dir + '/lighthouses', exist_ok=True)
+        for lighthouse in mesh['lighthouses']:
+            generate_certs(dir + '/lighthouses/', lighthouse)
+            ips.append(lighthouse['nebula_ip'])
+            conf = copy.deepcopy(base)
+            add_common(lighthouse, conf)
+            conf['listen'] = { 'port': lighthouse['listen_port'] }
+            conf['lighthouse'] = { 'am_lighthouse': True }
+            conf['relay'] = { 'am_relay': True, 'use_relays': False }
+            host_map = []
+            for ip in lighthouse['public_ip']:
+                host_map.append(ip)
+            relays[lighthouse['nebula_ip']] = host_map
+            with open(f"{dir}/lighthouses/{lighthouse['name']}/config.yaml", 'w', encoding='UTF-8') as f:
+                yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
+
+    def process_nodes():
+        if 'nodes' not in mesh.keys():
+            print('*** No standard nodes defined! ***')
+            return
+        os.makedirs(dir + '/nodes', exist_ok=True)
+        for node in mesh['nodes']:
+            generate_certs(dir + '/nodes/', node)
+            conf = copy.deepcopy(base)
+            add_common(node, conf)
+            conf['static_host_map'] = {}
+            for host in relays.keys():
+                conf['static_host_map'][host] = list(relays[host])
+            conf['lighthouse'] = { 'hosts': list(ips) }
+            if 'advertise_addrs' in node.keys():
+                conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
+            conf['relay'] = { 'relays': ips }
+            with open(f"{dir}/nodes/{node['name']}/config.yaml", 'w', encoding='UTF-8') as f:
+                yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
+
     with open(Path(__file__).resolve().parent / 'res/config.yaml') as f:
         base = yaml.load(f, Loader=yaml.loader.SafeLoader)
     with open(config) as f:
@@ -103,41 +145,16 @@ def process_config(config, dir):
     dir += '/' + mesh['organization']
     os.makedirs(dir, exist_ok=True)
 
-    # generate certificate authority
-    subprocess.run(['nebula-cert', 'ca', '-name', mesh['organization'], '-out-crt', f'{dir}/ca.crt', '-out-key', f'{dir}/ca.key'])
+    print(f"Generating certificate authority for '{mesh['organization']}'...")
+    if os.path.isfile(f'{dir}/ca.crt') or os.path.isfile(f'{dir}/ca.key'):
+        print(f"...Keys already exist. Skipping key generation.")
+    else:
+        subprocess.run(['nebula-cert', 'ca', '-name', mesh['organization'], '-out-crt', f'{dir}/ca.crt', '-out-key', f'{dir}/ca.key'])
 
-    os.makedirs(dir + '/lighthouses', exist_ok=True)
     relays = {}
     ips = []
-    for lighthouse in mesh['lighthouses']:
-        generate_certs(dir + '/lighthouses/', lighthouse)
-        ips.append(lighthouse['nebula_ip'])
-        conf = copy.deepcopy(base)
-        add_common(lighthouse)
-        conf['listen'] = { 'port': lighthouse['listen_port'] }
-        conf['lighthouse'] = { 'am_lighthouse': True }
-        conf['relay'] = { 'am_relay': True, 'use_relays': False }
-        host_map = []
-        for ip in lighthouse['public_ip']:
-            host_map.append(ip)
-        relays[lighthouse['nebula_ip']] = host_map
-        with open(f"{dir}/lighthouses/{lighthouse['name']}/config.yaml", 'w', encoding='UTF-8') as f:
-            yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
-
-    os.makedirs(dir + '/nodes', exist_ok=True)
-    for node in mesh['nodes']:
-        generate_certs(dir + '/nodes/', node)
-        conf = copy.deepcopy(base)
-        add_common(node)
-        conf['static_host_map'] = {}
-        for host in relays.keys():
-            conf['static_host_map'][host] = list(relays[host])
-        conf['lighthouse'] = { 'hosts': list(ips) }
-        if 'advertise_addrs' in node.keys():
-            conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
-        conf['relay'] = { 'relays': ips }
-        with open(f"{dir}/nodes/{node['name']}/config.yaml", 'w', encoding='UTF-8') as f:
-            yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
+    process_lighthouses()
+    process_nodes()
     return
 
     file_dir = f"{dir}/{device}/"
