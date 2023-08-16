@@ -56,7 +56,7 @@ def create_remove_script(name):
 def process_config(config, dir):
 
     def generate_certs(path, device):
-        print(f"\nProcessing device '{device['name']}'...")
+        print(f"Processing device '{device['name']}'")
         if os.path.isfile(f"{path + device['name']}/host.crt") or os.path.isfile(f"{path + device['name']}/host.key"):
             print(f"...Keys already exist. Skipping key generation.")
             return
@@ -145,7 +145,7 @@ def process_config(config, dir):
     dir += '/' + mesh['organization']
     os.makedirs(dir, exist_ok=True)
 
-    print(f"Generating certificate authority for '{mesh['organization']}'...")
+    print(f"Generating certificate authority for '{mesh['organization']}'")
     if os.path.isfile(f'{dir}/ca.crt') or os.path.isfile(f'{dir}/ca.key'):
         print(f"...Keys already exist. Skipping key generation.")
     else:
@@ -155,6 +155,7 @@ def process_config(config, dir):
     ips = []
     process_lighthouses()
     process_nodes()
+    print(f"Completed successfully. See output dir: '{dir}'")
     return
 
     file_dir = f"{dir}/{device}/"
@@ -173,10 +174,10 @@ def process_config(config, dir):
 parser = argparse.ArgumentParser(description="Generate Nebula configs based on a network outline")
 parser.add_argument('-v', '--version', action='version', version=f"{APP} {VERSION}")
 parser.add_argument("Outline", help='Network outline (YAML format)')
-parser.add_argument('-o', metavar='directory', help='Output directory (working dir if not provided)')
+parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where Outline is located)')
 args = vars(parser.parse_args())
 if args['o']:
     dir = args['o'].rstrip('/')
 else:
-    dir = '.'
+    dir = str(Path(args['Outline']).resolve().parent)
 process_config(args['Outline'], dir)
