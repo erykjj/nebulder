@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-  File:           nebulder
+  File:           nebulder.py
 
   Description:    Generate Nebula configs based on a network outline
 
@@ -32,14 +32,6 @@ VERSION = 'v0.0.3'
 
 import argparse, copy, os, re, subprocess, yaml
 from pathlib import Path
-
-
-# def sh(command, arguments='', inp=''):
-#     res = subprocess.run([command, arguments], stdout=subprocess.PIPE, stderr=subprocess.PIPE, input=inp.encode('utf-8'))
-#     if res.stderr.decode('utf-8'):
-#         print(res.stderr.decode('utf-8'))
-#         exit()
-#     return res.stdout.decode('utf-8')
 
 
 def create_deploy_script(name, port):
@@ -92,6 +84,9 @@ def process_config(config, dir):
                         processed.append(inbound)
             return processed
 
+        conf['pki'] = { 'ca': f"/etc/nebula/{mesh['tun_device']}/ca.crt",
+                        'cert': f"/etc/nebula/{mesh['tun_device']}/host.crt'",
+                        'key': f"/etc/nebula/{mesh['tun_device']}/host.key'" }
         conf['tun'] = { 'dev': mesh['tun_device'] }
         if 'preferred_ranges' in node.keys():
             conf['preferred_ranges'] = node['preferred_ranges']
@@ -142,14 +137,14 @@ def process_config(config, dir):
     with open(config) as f:
         mesh = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
-    dir += '/' + mesh['organization']
+    dir += '/' + mesh['tun_device']
     os.makedirs(dir, exist_ok=True)
 
-    print(f"Generating certificate authority for '{mesh['organization']}'")
+    print(f"Generating certificate authority for '{mesh['tun_device']}'")
     if os.path.isfile(f'{dir}/ca.crt') or os.path.isfile(f'{dir}/ca.key'):
         print(f"...Keys already exist. Skipping key generation.")
     else:
-        subprocess.run(['nebula-cert', 'ca', '-name', mesh['organization'], '-out-crt', f'{dir}/ca.crt', '-out-key', f'{dir}/ca.key'])
+        subprocess.run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', f'{dir}/ca.crt', '-out-key', f'{dir}/ca.key'])
 
     relays = {}
     ips = []
