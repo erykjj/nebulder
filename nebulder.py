@@ -30,7 +30,7 @@ APP = 'nebulder'
 VERSION = 'v0.0.2'
 
 
-import argparse, os, subprocess, yaml
+import argparse, copy, os, re, subprocess, yaml
 from pathlib import Path
 
 
@@ -65,6 +65,35 @@ def process_config(config, dir):
         subprocess.run(arguments)
         subprocess.run(['cp', f'{dir}/ca.crt', f"{path + device['name']}/"])
 
+    def add_common(node):
+
+        def process_firewall(firewall):
+            processed = []
+            inbound = {}
+            for rules in firewall:
+                for rule, hosts in rules.items():
+                    res = re.search(r'(\d+)(?:/([a-zA-Z]+))?', rule)
+                    if res:
+                        inbound = { 'port': int(res.group(1)) }
+                        if res.group(2):
+                            proto = res.group(2)
+                        else:
+                            proto = 'any'
+                        inbound['proto'] = proto
+                        if hosts == 'any':
+                            inbound['host'] = 'any'
+                        elif len(hosts) == 1:
+                            inbound['group'] = hosts[0]
+                        else:
+                            inbound['groups'] = hosts
+                        processed.append(inbound)
+            return processed
+
+        conf['tun'] = { 'dev': mesh['tun_device'] }
+        if 'preferred_ranges' in node.keys():
+            conf['preferred_ranges'] = node['preferred_ranges']
+        if 'inbound_firewall' in node.keys():
+            conf['firewall']['inbound'] += process_firewall(node['inbound_firewall'])
 
     with open(Path(__file__).resolve().parent / 'res/config.yaml') as f:
         base = yaml.load(f, Loader=yaml.loader.SafeLoader)
@@ -82,40 +111,33 @@ def process_config(config, dir):
     ips = []
     for lighthouse in mesh['lighthouses']:
         generate_certs(dir + '/lighthouses/', lighthouse)
-        conf = base.copy()
         ips.append(lighthouse['nebula_ip'])
-        conf['tun'] = { 'dev': mesh['tun_device'] }
+        conf = copy.deepcopy(base)
+        add_common(lighthouse)
         conf['listen'] = { 'port': lighthouse['listen_port'] }
         conf['lighthouse'] = { 'am_lighthouse': True }
         conf['relay'] = { 'am_relay': True, 'use_relays': False }
-        if 'preferred_ranges' in lighthouse.keys():
-            conf['preferred_ranges'] = lighthouse['preferred_ranges']
         host_map = []
         for ip in lighthouse['public_ip']:
             host_map.append(ip)
         relays[lighthouse['nebula_ip']] = host_map
         with open(f"{dir}/lighthouses/{lighthouse['name']}/config.yaml", 'w', encoding='UTF-8') as f:
             yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
-        conf.clear()
 
     os.makedirs(dir + '/nodes', exist_ok=True)
     for node in mesh['nodes']:
         generate_certs(dir + '/nodes/', node)
-        conf = base.copy()
-        conf['tun'] = { 'dev': mesh['tun_device'] }
+        conf = copy.deepcopy(base)
+        add_common(node)
         conf['static_host_map'] = {}
         for host in relays.keys():
             conf['static_host_map'][host] = list(relays[host])
-        conf['lighthouse'] = { 'am_lighthouse': False, 'hosts': list(ips) }
+        conf['lighthouse'] = { 'hosts': list(ips) }
         if 'advertise_addrs' in node.keys():
             conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
         conf['relay'] = { 'relays': ips }
-        if 'preferred_ranges' in node.keys():
-            conf['preferred_ranges'] = node['preferred_ranges']
-        # print(conf)
         with open(f"{dir}/nodes/{node['name']}/config.yaml", 'w', encoding='UTF-8') as f:
             yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
-        conf.clear()
     return
 
     file_dir = f"{dir}/{device}/"
