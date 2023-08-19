@@ -27,22 +27,13 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v0.0.3'
+VERSION = 'v0.1.0'
 
 
-import argparse, copy, os, re, subprocess, yaml
+import argparse, os, re, yaml
+from copy import deepcopy
 from pathlib import Path
-
-
-def create_deploy_script(name, port):
-    if port:
-        note = f'echo "You may need to add a rule to your firewall to allow traffic to the WireGuard interface\'s port:"\necho "sudo ufw allow {port}/udp"\necho "sudo ufw reload"\n\n'
-    else:
-        note = ''
-    return f'#!/bin/bash\n\nsystemctl stop wg-quick@{name}\nsystemctl disable wg-quick@{name}\n\ncp --remove-destination {name}.conf /etc/wireguard/\nchown root:root /etc/wireguard/{name}.conf\nchmod 600 /etc/wireguard/{name}.conf\n\nsystemctl enable wg-quick@{name}\nsystemctl start wg-quick@{name}\n\nwg show {name}\n\n{note}exit 0'
-
-def create_remove_script(name):
-    return f'#!/bin/bash\n\nsystemctl stop wg-quick@{name}\nsystemctl disable wg-quick@{name}\n\nrm /etc/wireguard/{name}.conf\n\nwg show\n\necho "You may also need to check your firewall rules"\n\nexit 0'
+from subprocess import run
 
 
 def process_config(config, dir):
@@ -57,8 +48,8 @@ def process_config(config, dir):
         if 'groups' in device.keys():
             arguments.append('-groups')
             arguments.append(','.join(device['groups']))
-        subprocess.run(arguments)
-        subprocess.run(['cp', f'{dir}/ca.crt', f"{path + device['name']}/"])
+        run(arguments)
+        run(['cp', f'{dir}/ca.crt', f"{path + device['name']}/"])
 
     def add_common(node, conf):
 
@@ -101,7 +92,7 @@ def process_config(config, dir):
         for lighthouse in mesh['lighthouses']:
             generate_certs(dir + '/lighthouses/', lighthouse)
             ips.append(lighthouse['nebula_ip'])
-            conf = copy.deepcopy(base)
+            conf = deepcopy(base)
             add_common(lighthouse, conf)
             conf['listen'] = { 'port': lighthouse['listen_port'] }
             conf['lighthouse'] = { 'am_lighthouse': True }
@@ -121,7 +112,7 @@ def process_config(config, dir):
         os.makedirs(dir + '/nodes', exist_ok=True)
         for node in mesh['nodes']:
             generate_certs(dir + '/nodes/', node)
-            conf = copy.deepcopy(base)
+            conf = deepcopy(base)
             add_common(node, conf)
             conf['static_host_map'] = {}
             for host in relays.keys():
@@ -146,26 +137,13 @@ def process_config(config, dir):
     if os.path.isfile(f'{dir}/ca.crt') or os.path.isfile(f'{dir}/ca.key'):
         print(f"...Keys already exist. Skipping key generation.")
     else:
-        subprocess.run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', f'{dir}/ca.crt', '-out-key', f'{dir}/ca.key'])
+        run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', f'{dir}/ca.crt', '-out-key', f'{dir}/ca.key'])
 
     relays = {}
     ips = []
     process_lighthouses()
     process_nodes()
-    print(f"Completed successfully. See output dir: '{dir}'")
-    return
-
-    file_dir = f"{dir}/{device}/"
-    with open(f"{file_dir}{mesh['NetworkName']}.conf", 'w', encoding='UTF-8') as f:
-        f.write(conf)
-        os.chmod(f"{file_dir}{mesh['NetworkName']}.conf", mode=0o600)
-    with open(file_dir + f"deploy_{device}.sh", 'w', encoding='UTF-8') as f:
-        f.write(create_deploy_script(mesh['NetworkName'], mesh[device]['ListenPort']))
-        os.chmod(f'{file_dir}deploy_{device}.sh', mode=0o740)
-    with open(file_dir + f"remove_{device}.sh", 'w', encoding='UTF-8') as f:
-        f.write(create_remove_script(mesh['NetworkName']))
-        os.chmod(f'{file_dir}remove_{device}.sh', mode=0o740)
-    print(f'Generated config and scripts for {device}')
+    print(f'Completed successfully. See output in {dir}')
 
 
 parser = argparse.ArgumentParser(description="Generate Nebula configs based on a network outline")
