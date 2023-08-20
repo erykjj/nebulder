@@ -36,7 +36,7 @@ from pathlib import Path
 from subprocess import run, PIPE
 
 
-def process_config(config, dir):
+def process_config(config, path):
 
     def cert_date(path):
         arguments = ['nebula-cert', 'print', '-path', path]
@@ -46,19 +46,19 @@ def process_config(config, dir):
     def generate_certs(path, device):
         print(f"\nProcessing device '{device['name']}'")
         if os.path.isfile(path + '/host.crt') or os.path.isfile(path + '/host.key'):
-            if new_cert:
+            if is_new:
                 os.remove(path + '/host.crt')
                 os.remove(path + '/host.key')
             else:
                 print(f"   Certificate already exists - expires: {cert_date( path + '/host.crt')}\n   Skipping key generation\n   Added config.yaml")
                 return
         os.makedirs(path, exist_ok=True)
-        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + '/host.crt', '-out-key', path + '/host.key', '-ca-crt', f'{dir}/ca.crt', '-ca-key', f'{dir}/ca.key', '-ip', f"{device['nebula_ip']}/32"]
+        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + '/host.crt', '-out-key', path + '/host.key', '-ca-crt', f'{path}/ca.crt', '-ca-key', f'{path}/ca.key', '-ip', f"{device['nebula_ip']}/32"]
         if 'groups' in device.keys():
             arguments.append('-groups')
             arguments.append(','.join(device['groups']))
         run(arguments)
-        run(['cp', f'{dir}/ca.crt', path])
+        run(['cp', f'{path}/ca.crt', path])
         print(f"   Added config.yaml and key files\n   Certificate expires: {cert_date( path + '/host.crt')}")
 
     def add_common(node, conf):
@@ -99,7 +99,7 @@ def process_config(config, dir):
             print('*** No lighthouse defined!! ***')
             exit()
         for lighthouse in mesh['lighthouses']:
-            generate_certs(dir + f"/lighthouse_{lighthouse['name']}", lighthouse)
+            generate_certs(path + f"/lighthouse_{lighthouse['name']}", lighthouse)
             ips.append(lighthouse['nebula_ip'])
             conf = deepcopy(base)
             add_common(lighthouse, conf)
@@ -110,7 +110,7 @@ def process_config(config, dir):
             for ip in lighthouse['public_ip']:
                 host_map.append(ip)
             relays[lighthouse['nebula_ip']] = host_map
-            with open(f"{dir}/lighthouse_{lighthouse['name']}/config.yaml", 'w', encoding='UTF-8') as f:
+            with open(f"{path}/lighthouse_{lighthouse['name']}/config.yaml", 'w', encoding='UTF-8') as f:
                 f.write(f"# Nebula config for lighthouse '{lighthouse['name']}' on '{mesh['tun_device']}' network: {lighthouse['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
 
@@ -119,7 +119,7 @@ def process_config(config, dir):
             print('*** No standard nodes defined! ***')
             return
         for node in mesh['nodes']:
-            generate_certs(dir + f"/node_{node['name']}", node)
+            generate_certs(path + f"/node_{node['name']}", node)
             conf = deepcopy(base)
             add_common(node, conf)
             conf['static_host_map'] = {}
@@ -129,7 +129,7 @@ def process_config(config, dir):
             if 'advertise_addrs' in node.keys():
                 conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
             conf['relay'] = { 'relays': ips }
-            with open(f"{dir}/node_{node['name']}/config.yaml", 'w', encoding='UTF-8') as f:
+            with open(f"{path}/node_{node['name']}/config.yaml", 'w', encoding='UTF-8') as f:
                 f.write(f"# Nebula config for node '{node['name']}' on '{mesh['tun_device']}' network: {node['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
 
@@ -138,22 +138,22 @@ def process_config(config, dir):
     with open(config) as f:
         mesh = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
-    dir += '/' + mesh['tun_device']
-    os.makedirs(dir, exist_ok=True)
+    path += '/' + mesh['tun_device']
+    os.makedirs(path, exist_ok=True)
 
     print(f"Generating certificate authority for '{mesh['tun_device']}'")
-    if os.path.isfile(f'{dir}/ca.crt') or os.path.isfile(f'{dir}/ca.key'):
-        print(f"   Key already exists - expires: {cert_date(dir + '/ca.crt')}\n   Skipping key generation")
-        new_cert = False
+    if os.path.isfile(f'{path}/ca.crt') or os.path.isfile(f'{path}/ca.key'):
+        print(f"   Key already exists - expires: {cert_date(path + '/ca.crt')}\n   Skipping key generation")
+        is_new = False
     else:
-        run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', f'{dir}/ca.crt', '-out-key', f'{dir}/ca.key'])
-        new_cert = True
+        run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', f'{path}/ca.crt', '-out-key', f'{path}/ca.key'])
+        is_new = True
 
     relays = {}
     ips = []
     process_lighthouses()
     process_nodes()
-    print(f'\nCompleted successfully. See output in {dir}\n')
+    print(f'\nCompleted successfully. See output in {path}\n')
 
 
 parser = argparse.ArgumentParser(description="Generate Nebula configs based on a network outline")
@@ -162,7 +162,7 @@ parser.add_argument("Outline", help='Network outline (YAML format)')
 parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where Outline is located)')
 args = vars(parser.parse_args())
 if args['o']:
-    dir = args['o'].rstrip('/')
+    path = args['o'].rstrip('/')
 else:
-    dir = str(Path(args['Outline']).resolve().parent)
-process_config(args['Outline'], dir)
+    path = str(Path(args['Outline']).resolve().parent)
+process_config(args['Outline'], path)
