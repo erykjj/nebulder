@@ -43,6 +43,17 @@ def process_config(config, path):
         cert = run(arguments, stdout=PIPE)
         return re.search(r'Not After: (.*)', cert.stdout.decode(), re.MULTILINE).group(1) or 'ERROR in reading CERT file'
 
+    def certificate_authority():
+        print(f"Generating certificate authority for '{mesh['tun_device']}'")
+        if os.path.isfile(root_path + 'ca.crt') or os.path.isfile(root_path + 'ca.key'):
+            print(f"   Key already exists - expires: {cert_date(root_path + 'ca.crt')}\n   Skipping key generation")
+            return False
+        else:
+            run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', root_path + 'ca.crt', '-out-key', root_path + 'ca.key'])
+            run(['nebula-cert', 'print', '-path', root_path + 'ca.crt', '-out-qr', root_path + 'ca.qr'], stdout=PIPE)
+            print(f"   Certificate expires: {cert_date( root_path + 'ca.crt')}")
+            return True
+
     def generate_certs(path, device):
         print(f"\nProcessing device '{device['name']}'")
         os.makedirs(path, exist_ok=True)
@@ -98,7 +109,7 @@ def process_config(config, path):
 
     def process_lighthouses():
         if 'lighthouses' not in mesh.keys():
-            print('*** No lighthouse defined!! ***')
+            print('*** ERROR: No lighthouse defined!!\n')
             exit()
         for lighthouse in mesh['lighthouses']:
             path = root_path + 'lighthouse_' + lighthouse['name'] + '/'
@@ -141,21 +152,9 @@ def process_config(config, path):
         base = yaml.load(f, Loader=yaml.loader.SafeLoader)
     with open(config) as f:
         mesh = yaml.load(f, Loader=yaml.loader.SafeLoader)
-
     root_path = path + '/' + mesh['tun_device'] + '/'
     os.makedirs(root_path, exist_ok=True)
-
-    print(f"Generating certificate authority for '{mesh['tun_device']}'")
-    if os.path.isfile(root_path + 'ca.crt') or os.path.isfile(root_path + 'ca.key'):
-        print(f"   Key already exists - expires: {cert_date(root_path + 'ca.crt')}\n   Skipping key generation")
-        is_new = False
-    else:
-        run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', root_path + 'ca.crt', '-out-key', root_path + 'ca.key'])
-        run(['nebula-cert', 'print', '-path', root_path + 'ca.crt', '-out-qr', root_path + 'ca.qr'], stdout=PIPE)
-
-        is_new = True
-        print(f"   Certificate expires: {cert_date( root_path + 'ca.crt')}")
-
+    is_new = certificate_authority()
     relays = {}
     ips = []
     process_lighthouses()
