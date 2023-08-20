@@ -112,7 +112,7 @@ def process_config(config, path):
                 host_map.append(ip)
             relays[lighthouse['nebula_ip']] = host_map
             with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:
-                f.write(f"# Nebula config for lighthouse '{lighthouse['name']}' on '{mesh['tun_device']}' network: {lighthouse['nebula_ip']}\n\n")
+                f.write(f"# Nebula config for lighthouse '{lighthouse['name']}' on '{mesh['tun_device']}' network device: {lighthouse['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
 
     def process_nodes():
@@ -132,7 +132,7 @@ def process_config(config, path):
                 conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
             conf['relay'] = { 'relays': ips }
             with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:
-                f.write(f"# Nebula config for node '{node['name']}' on '{mesh['tun_device']}' network: {node['nebula_ip']}\n\n")
+                f.write(f"# Nebula config for node '{node['name']}' on '{mesh['tun_device']}' network device: {node['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
 
     with open(Path(__file__).resolve().parent / 'res/config.yaml') as f:
@@ -150,12 +150,13 @@ def process_config(config, path):
     else:
         run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', root_path + 'ca.crt', '-out-key', root_path + 'ca.key'])
         is_new = True
+        print(f"   Certificate expires: {cert_date( root_path + 'ca.crt')}")
 
     relays = {}
     ips = []
     process_lighthouses()
     process_nodes()
-    print(f'\nCompleted successfully. See output in {root_path}\n')
+    print(f'\nCompleted successfully\n   See output in {root_path}\n')
 
 
 parser = argparse.ArgumentParser(description="Generate Nebula configs based on a network outline")
