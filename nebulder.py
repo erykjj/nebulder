@@ -33,16 +33,25 @@ VERSION = 'v0.1.0'
 import argparse, os, re, yaml
 from copy import deepcopy
 from pathlib import Path
-from subprocess import run
+from subprocess import run, PIPE
 
 
 def process_config(config, dir):
 
+    def cert_date(path):
+        arguments = ['nebula-cert', 'print', '-path', path]
+        cert = run(arguments, stdout=PIPE)
+        return re.search(r'Not After: (.*)', cert.stdout.decode(), re.MULTILINE).group(1) or 'ERROR in reading CERT file'
+
     def generate_certs(path, device):
-        print(f"Processing device '{device['name']}'")
+        print(f"\nProcessing device '{device['name']}'")
         if os.path.isfile(path + '/host.crt') or os.path.isfile(path + '/host.key'):
-            print(f"...Keys already exist. Skipping key generation.")
-            return
+            if new_cert:
+                os.remove(path + '/host.crt')
+                os.remove(path + '/host.key')
+            else:
+                print(f"   Certificate already exists - expires: {cert_date( path + '/host.crt')}\n   Skipping key generation\n   Added config.yaml")
+                return
         os.makedirs(path, exist_ok=True)
         arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + '/host.crt', '-out-key', path + '/host.key', '-ca-crt', f'{dir}/ca.crt', '-ca-key', f'{dir}/ca.key', '-ip', f"{device['nebula_ip']}/32"]
         if 'groups' in device.keys():
@@ -50,6 +59,7 @@ def process_config(config, dir):
             arguments.append(','.join(device['groups']))
         run(arguments)
         run(['cp', f'{dir}/ca.crt', path])
+        print(f"   Added config.yaml and key files\n   Certificate expires: {cert_date( path + '/host.crt')}")
 
     def add_common(node, conf):
 
@@ -133,15 +143,17 @@ def process_config(config, dir):
 
     print(f"Generating certificate authority for '{mesh['tun_device']}'")
     if os.path.isfile(f'{dir}/ca.crt') or os.path.isfile(f'{dir}/ca.key'):
-        print(f"...Keys already exist. Skipping key generation.")
+        print(f"   Key already exists - expires: {cert_date(dir + '/ca.crt')}\n   Skipping key generation")
+        new_cert = False
     else:
         run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', f'{dir}/ca.crt', '-out-key', f'{dir}/ca.key'])
+        new_cert = True
 
     relays = {}
     ips = []
     process_lighthouses()
     process_nodes()
-    print(f'Completed successfully. See output in {dir}')
+    print(f'\nCompleted successfully. See output in {dir}\n')
 
 
 parser = argparse.ArgumentParser(description="Generate Nebula configs based on a network outline")
