@@ -141,7 +141,7 @@ def process_config(config, path):
         mesh = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
     root_path = path + '/' + mesh['tun_device'] + '/'
-    os.makedirs(path, exist_ok=True)
+    os.makedirs(root_path, exist_ok=True)
 
     print(f"Generating certificate authority for '{mesh['tun_device']}'")
     if os.path.isfile(root_path + 'ca.crt') or os.path.isfile(root_path + 'ca.key'):
