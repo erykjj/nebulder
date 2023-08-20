@@ -46,6 +46,8 @@ def process_config(config, path):
     def generate_certs(path, device):
         print(f"\nProcessing device '{device['name']}'")
         os.makedirs(path, exist_ok=True)
+        run(['cp', root_path + '/ca.crt', path])
+        run(['cp', root_path + '/ca.qr', path])
         if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
             if is_new:
                 os.remove(path + 'host.crt')
@@ -58,7 +60,7 @@ def process_config(config, path):
             arguments.append('-groups')
             arguments.append(','.join(device['groups']))
         run(arguments)
-        run(['cp', root_path + '/ca.crt', path])
+        run(['nebula-cert', 'print', '-path', path + 'host.crt', '-out-qr', path + 'host.qr'], stdout=PIPE)
         print(f"   Added config.yaml and key files\n   Certificate expires: {cert_date( path + 'host.crt')}")
 
     def add_common(node, conf):
@@ -149,6 +151,8 @@ def process_config(config, path):
         is_new = False
     else:
         run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', root_path + 'ca.crt', '-out-key', root_path + 'ca.key'])
+        run(['nebula-cert', 'print', '-path', root_path + 'ca.crt', '-out-qr', root_path + 'ca.qr'], stdout=PIPE)
+
         is_new = True
         print(f"   Certificate expires: {cert_date( root_path + 'ca.crt')}")
 
