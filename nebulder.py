@@ -40,16 +40,16 @@ def process_config(config, dir):
 
     def generate_certs(path, device):
         print(f"Processing device '{device['name']}'")
-        if os.path.isfile(f"{path + device['name']}/host.crt") or os.path.isfile(f"{path + device['name']}/host.key"):
+        if os.path.isfile(path + '/host.crt') or os.path.isfile(path + '/host.key'):
             print(f"...Keys already exist. Skipping key generation.")
             return
-        os.makedirs(path + device['name'], exist_ok=True)
-        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', f"{path + device['name']}/host.crt", '-out-key', f"{path + device['name']}/host.key", '-ca-crt', f'{dir}/ca.crt', '-ca-key', f'{dir}/ca.key', '-ip', f"{device['nebula_ip']}/32"]
+        os.makedirs(path, exist_ok=True)
+        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + '/host.crt', '-out-key', path + '/host.key', '-ca-crt', f'{dir}/ca.crt', '-ca-key', f'{dir}/ca.key', '-ip', f"{device['nebula_ip']}/32"]
         if 'groups' in device.keys():
             arguments.append('-groups')
             arguments.append(','.join(device['groups']))
         run(arguments)
-        run(['cp', f'{dir}/ca.crt', f"{path + device['name']}/"])
+        run(['cp', f'{dir}/ca.crt', path])
 
     def add_common(node, conf):
 
@@ -88,9 +88,8 @@ def process_config(config, dir):
         if 'lighthouses' not in mesh.keys():
             print('*** No lighthouse defined!! ***')
             exit()
-        os.makedirs(dir + '/lighthouses', exist_ok=True)
         for lighthouse in mesh['lighthouses']:
-            generate_certs(dir + '/lighthouses/', lighthouse)
+            generate_certs(dir + f"/lighthouse_{lighthouse['name']}", lighthouse)
             ips.append(lighthouse['nebula_ip'])
             conf = deepcopy(base)
             add_common(lighthouse, conf)
@@ -101,7 +100,7 @@ def process_config(config, dir):
             for ip in lighthouse['public_ip']:
                 host_map.append(ip)
             relays[lighthouse['nebula_ip']] = host_map
-            with open(f"{dir}/lighthouses/{lighthouse['name']}/config.yaml", 'w', encoding='UTF-8') as f:
+            with open(f"{dir}/lighthouse_{lighthouse['name']}/config.yaml", 'w', encoding='UTF-8') as f:
                 f.write(f"# Nebula config for lighthouse '{lighthouse['name']}' on '{mesh['tun_device']}' network: {lighthouse['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
 
@@ -109,9 +108,8 @@ def process_config(config, dir):
         if 'nodes' not in mesh.keys():
             print('*** No standard nodes defined! ***')
             return
-        os.makedirs(dir + '/nodes', exist_ok=True)
         for node in mesh['nodes']:
-            generate_certs(dir + '/nodes/', node)
+            generate_certs(dir + f"/node_{node['name']}", node)
             conf = deepcopy(base)
             add_common(node, conf)
             conf['static_host_map'] = {}
@@ -121,7 +119,7 @@ def process_config(config, dir):
             if 'advertise_addrs' in node.keys():
                 conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
             conf['relay'] = { 'relays': ips }
-            with open(f"{dir}/nodes/{node['name']}/config.yaml", 'w', encoding='UTF-8') as f:
+            with open(f"{dir}/node_{node['name']}/config.yaml", 'w', encoding='UTF-8') as f:
                 f.write(f"# Nebula config for node '{node['name']}' on '{mesh['tun_device']}' network: {node['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
 
