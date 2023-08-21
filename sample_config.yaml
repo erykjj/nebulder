@@ -1,0 +1,40 @@
+tun_device: nebula1     # name of the network interface created on each node
+                        # also the CA "organization" name
+
+lighthouses:                    # at least one lighthouse node required
+  - name: raspi
+    nebula_ip: 10.1.1.1         # private 'LAN' of choice
+    listen_port: 4242           # must be different for each nebula interface
+    public_ip:                  # may need to open NAT port-forwarding...
+      - 192.168.1.1:4242        # to the port for listening in on LAN
+      - my.publicip.com:4242    # must have public IP
+    inbound_firewall:
+      - 2222/tcp: [admin, ops]  # ssh (on port 2222) only accessible by nodes...
+      - 80/tcp: any             # from both admin and ops groups
+      - 443/tcp: any
+
+nodes:                                  # as many as you want
+  - name: laptop1
+    groups: [admin, ops]                # this device belogs to admin and ops
+    nebula_ip: 10.1.1.2                 # only device that can access ssh on raspi
+    advertise_addrs: 192.168.1.2        # if on same physical LAN as lighthouse...
+    preferred_ranges: [192.168.1.0/24]  # prefer using phisical IP
+
+  - name: laptop2
+    nebula_ip: 10.1.1.3
+    advertise_addrs: 192.168.1.3
+    preferred_ranges: [192.168.1.0/24]
+
+  - name: work1
+    nebula_ip: 10.1.1.4
+    inbound_firewall:
+      - 2222/tcp: [ops]                 # ssh (on port 2222) accessible by ops
+
+  - name: work2
+    nebula_ip: 10.1.1.5
+    inbound_firewall:
+      - 2222/tcp: [ops]                 # ssh (on port 2222) accessible by ops
+
+  - name: mobile
+    groups: [ops]                       # device belongs to ops group
+    nebula_ip: 10.1.1.6
