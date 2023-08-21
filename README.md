@@ -29,4 +29,4 @@ ____
 
 Feel free to [get in touch and post any issues and suggestions](https://github.com/erykjj/nebulder/issues).
 
-[![RSS of releases](res/rss-36.png)](https://github.com/erykjj/nebulder/releases.atom)
+[[RSS of releases](res/rss-36.png)](https://github.com/erykjj/nebulder/releases.atom)
