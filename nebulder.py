@@ -71,7 +71,7 @@ def process_config(config, path):
             else:
                 print(f"   Certificate already exists - expires: {cert_date( path + 'host.crt')}\n   Skipping key generation\n   Added config.yaml")
                 return
-        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + 'host.crt', '-out-key', path + 'host.key', '-ca-crt', root_path + 'ca.crt', '-ca-key', root_path + 'ca.key', '-ip', f"{device['nebula_ip']}/32"]
+        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + 'host.crt', '-out-key', path + 'host.key', '-ca-crt', root_path + 'ca.crt', '-ca-key', root_path + 'ca.key', '-ip', f"{device['nebula_ip']}/24"]
         if 'groups' in device.keys():
             arguments.append('-groups')
             arguments.append(','.join(device['groups']))
