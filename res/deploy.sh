@@ -18,6 +18,7 @@ cp -t /etc/nebula/@@tun_device@@ host.* ca.crt config.yaml
 echo "  Files copied"
 chown -R nebula:nebula /etc/nebula/@@tun_device@@
 chmod 600 /etc/nebula/@@tun_device@@/*
+chmod 644 /etc/nebula/@@tun_device@@/config.yaml
 echo -e "  Permissions changed to rw------- (600)\n"
 
 echo "* Setting up systemd: /etc/systemd/system/nebula_@@tun_device@@.service"
