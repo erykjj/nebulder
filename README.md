@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This is a Python script to automate the generation of interface configs for [Nebula](https://nebula.defined.net/docs)] mesh/overlay networks. The nodes are all listed in an 'outline' (config file in YAML format) passed to the script. See the [sample_config.yaml](https://github.com/erykjj/nebulder/blob/main/sample_config.yaml) for format layout.
+This is a Python script to automate the generation of interface configs for [Nebula](https://nebula.defined.net/docs) mesh/overlay networks. The nodes are all listed in an 'outline' (config file in YAML format) passed to the script. See the [sample_config.yaml](https://github.com/erykjj/nebulder/blob/main/sample_config.yaml) for format layout.
 
 The script uses the `nebula-cert` binary to generate the keys/certs for each node. The script has only been tested under Linux. It will output the *config.yaml* file for each device/node, as well as a couple of bash scripts: one for automating the install/deploy of the device (along with a systemd unit file); the other for removing it. All that needs to be done is to copy the files to the corresponding node/device and to execute (**as root**) the *deploy.sh* script - again, only under Linux, and requires `systemd`. If your device is running a different OS, follow the [Nebula documentation](https://nebula.defined.net/docs/guides/quick-start/) for instructions on installation. In all cases, you will need to first download the corresponding Nebula binaries (on Linux, these go into `/usr/bin`). The QR PNG files are for scanning in the certificates on mobile devices.
 
