@@ -23,7 +23,7 @@ echo -e "  Permissions changed to rw------- (600)\n"
 echo "* Setting up systemd: /etc/systemd/system/nebula_@@tun_device@@.service"
 cp nebula_@@tun_device@@.service /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable 
+systemctl enable nebula_@@tun_device@@.service
 echo "  Service enabled"
 systemctl start nebula_@@tun_device@@.service
 echo "  Service started"
