@@ -105,8 +105,8 @@ def process_config(config, path):
             return processed
 
         conf['pki'] = { 'ca': f"/etc/nebula/{mesh['tun_device']}/ca.crt",
-                        'cert': f"/etc/nebula/{mesh['tun_device']}/host.crt'",
-                        'key': f"/etc/nebula/{mesh['tun_device']}/host.key'" }
+                        'cert': f"/etc/nebula/{mesh['tun_device']}/host.crt",
+                        'key': f"/etc/nebula/{mesh['tun_device']}/host.key" }
         conf['tun'] = { 'dev': mesh['tun_device'] }
         if 'preferred_ranges' in node.keys():
             conf['preferred_ranges'] = node['preferred_ranges']
