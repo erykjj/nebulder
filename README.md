@@ -8,7 +8,7 @@ The script uses the `nebula-cert` binary to generate the keys/certs for each nod
 
 As the deploy script indicates, you may also have to tweak your system firewall to allow the UDP connections to get through to your network interface if it will be used as a lighthouse. Of course, NAT port-forwarding on your router may also be required to let UDP through to the port your lighthouse is listening on.
 
-Keep in mind that (by design and by default) Nebula certifacate authority keys expire in 1 year, and so do all the certificates signed with it. Within that period, you can re-use the `ca.key` to generate more devices/nodes. So, keep `ca.key` safe.
+Keep in mind that (by design and by default) Nebula certificate authority keys expire in 1 year, and so do all the certificates signed with it. Within that period, you can re-use the `ca.key` to generate more devices/nodes. So, keep `ca.key` safe.
 
 ____
 ## Command-line usage
