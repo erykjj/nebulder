@@ -59,6 +59,8 @@ def process_config(config, path):
         os.makedirs(path, exist_ok=True)
         with open(path + f"deploy_{device['name']}.sh", 'w', encoding='UTF-8') as f:
             f.write(deploy)
+        with open(path + f"remove_{device['name']}.sh", 'w', encoding='UTF-8') as f:
+            f.write(remove)
         run(['cp', root_path + f"nebula_{mesh['tun_device']}.service", path])
         run(['cp', root_path + 'ca.crt', path])
         run(['cp', root_path + 'ca.qr', path])
@@ -169,6 +171,9 @@ def process_config(config, path):
     with open(res_path + 'deploy.sh') as f:
         txt = re.sub('@@tun_device@@', mesh['tun_device'], f.read(), re.MULTILINE)
     deploy = re.sub(r'@@tun_device@@', mesh['tun_device'], txt, re.MULTILINE)
+    with open(res_path + 'remove.sh') as f:
+        txt = re.sub('@@tun_device@@', mesh['tun_device'], f.read(), re.MULTILINE)
+    remove = re.sub(r'@@tun_device@@', mesh['tun_device'], txt, re.MULTILINE)
 
     is_new = certificate_authority()
     relays = {}
