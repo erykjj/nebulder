@@ -167,13 +167,15 @@ def process_config(config, path):
         f.write(re.sub('@@tun_device@@', mesh['tun_device'], txt, re.MULTILINE))
 
     with open(res_path + 'deploy.sh') as f:
-        deploy = re.sub('@@tun_device@@', mesh['tun_device'], f.read(), re.MULTILINE)
+        txt = re.sub('@@tun_device@@', mesh['tun_device'], f.read(), re.MULTILINE)
+    deploy = re.sub(r'@@tun_device@@', mesh['tun_device'], txt, re.MULTILINE)
 
     is_new = certificate_authority()
     relays = {}
     ips = []
     process_lighthouses()
     process_nodes()
+    run(['rm', root_path + f"nebula_{mesh['tun_device']}.service"])
     print(f'\nCompleted successfully\n   See output in {root_path}\n')
 
 
