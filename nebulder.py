@@ -57,8 +57,9 @@ def process_config(config, path):
     def generate_certs(path, device):
         print(f"\nProcessing device '{device['name']}'")
         os.makedirs(path, exist_ok=True)
-        run(['cp', root_path + '/ca.crt', path])
-        run(['cp', root_path + '/ca.qr', path])
+        run(['cp', root_path + f"nebula_{mesh['tun_device']}.service", path])
+        run(['cp', root_path + 'ca.crt', path])
+        run(['cp', root_path + 'ca.qr', path])
         if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
             if is_new:
                 os.remove(path + 'host.crt')
@@ -73,6 +74,10 @@ def process_config(config, path):
         run(arguments)
         run(['nebula-cert', 'print', '-path', path + 'host.crt', '-out-qr', path + 'host.qr'], stdout=PIPE)
         print(f"   Added config.yaml and key files\n   Certificate expires: {cert_date( path + 'host.crt')}")
+
+
+    def add_deploy(path):
+        return
 
     def add_common(node, conf):
 
@@ -148,12 +153,18 @@ def process_config(config, path):
                 f.write(f"# Nebula config for node '{node['name']}' on '{mesh['tun_device']}' network device: {node['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
 
-    with open(Path(__file__).resolve().parent / 'res/config.yaml') as f:
+
+    res_path = str(Path(__file__).resolve().parent) + '/res/'
+    with open(res_path + 'config.yaml') as f:
         base = yaml.load(f, Loader=yaml.loader.SafeLoader)
     with open(config) as f:
         mesh = yaml.load(f, Loader=yaml.loader.SafeLoader)
+    with open(res_path + 'nebula.service') as f:
+        txt = f.read()
     root_path = path + '/' + mesh['tun_device'] + '/'
     os.makedirs(root_path, exist_ok=True)
+    with open(root_path + f"nebula_{mesh['tun_device']}.service", 'w', encoding='UTF-8') as f:
+        f.write(re.sub('@@tun_device@@', mesh['tun_device'], txt, re.MULTILINE))
     is_new = certificate_authority()
     relays = {}
     ips = []
