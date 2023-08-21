@@ -1,0 +1,14 @@
+[Unit]
+Description=Nebula service for @@tun_device@@ network device
+After=network.target
+StartLimitIntervalSec=0
+ 
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=nebula
+ExecStart=/usr/bin/nebula -config /etc/nebula/@@tun_device@@/config.yaml
+ 
+[Install]
+WantedBy=multi-user.target
