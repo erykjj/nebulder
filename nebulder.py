@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v0.1.0'
+VERSION = 'v0.1.1'
 
 
 import argparse, os, re, yaml
