@@ -1,3 +1,5 @@
+# Common settings - shared between all lighthouses and nodes
+
 punchy:
   punch: true
   respond: true
