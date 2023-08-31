@@ -4,7 +4,14 @@
 
 ### Added
 
+- *deploy.sh* script
+  - dded check for binary
+  - added check for root privileges
+  - added commands to remore previous keys/config - for easy re-deployment/renewal
+
 ### Changed
+
+- Small fixes/improvements
 
 ### Fixed
 
