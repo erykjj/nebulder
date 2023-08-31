@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v0.1.1'
+VERSION = 'v0.1.2'
 
 
 import argparse, os, re, yaml
@@ -169,11 +169,9 @@ def process_config(config, path):
         f.write(re.sub('@@tun_device@@', mesh['tun_device'], txt, re.MULTILINE))
 
     with open(res_path + 'deploy.sh') as f:
-        txt = re.sub('@@tun_device@@', mesh['tun_device'], f.read(), re.MULTILINE)
-    deploy = re.sub(r'@@tun_device@@', mesh['tun_device'], txt, re.MULTILINE)
+        deploy = f.read().replace('@@tun_device@@', mesh['tun_device'])
     with open(res_path + 'remove.sh') as f:
-        txt = re.sub('@@tun_device@@', mesh['tun_device'], f.read(), re.MULTILINE)
-    remove = re.sub(r'@@tun_device@@', mesh['tun_device'], txt, re.MULTILINE)
+        remove = f.read().replace('@@tun_device@@', mesh['tun_device'])
 
     is_new = certificate_authority()
     relays = {}
