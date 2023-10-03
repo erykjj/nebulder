@@ -23,7 +23,7 @@ options:
   -v, --version  show program's version number and exit
   -o directory   Output directory (defaults to dir where Outline is located)
 ```
-
+.
 ____
 ## Feedback
 
