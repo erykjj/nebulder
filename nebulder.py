@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v0.1.2'
+VERSION = 'v0.1.3'
 
 
 import argparse, os, re, yaml
@@ -128,6 +128,8 @@ def process_config(config, path):
             conf['relay'] = { 'am_relay': True, 'use_relays': False }
             host_map = []
             for ip in lighthouse['public_ip']:
+                if ':' not in ip:
+                    ip += f":{lighthouse['listen_port']}"
                 host_map.append(ip)
             relays[lighthouse['nebula_ip']] = host_map
             with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:

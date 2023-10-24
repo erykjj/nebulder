@@ -9,8 +9,8 @@ lighthouses:                    # at least one lighthouse node required
     nebula_ip: 10.1.1.1         # private 'LAN' of choice
     listen_port: 4242           # must be different for each nebula interface
     public_ip:                  # may need to open NAT port-forwarding...
-      - 192.168.1.1:4242        # to the port for listening in on LAN
-      - my.publicip.com:4242    # must have public IP
+      - 192.168.1.1             # to the port for listening in on LAN
+      - my.publicip.com         # must have public IP
     inbound_firewall:
       - 2222/tcp: [admin, ops]  # ssh (on port 2222) only accessible by nodes...
       - 80/tcp: any             # from both admin and ops groups
