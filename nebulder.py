@@ -54,18 +54,22 @@ def process_config(config, path):
             print(f"   Certificate expires: {cert_date( root_path + 'ca.crt')}")
             return True
 
-    def generate_certs(path, device):
-        print(f"\nProcessing device '{device['name']}'")
+    def generate_certs(path, device, op_sys):
+        print(f"\nProcessing device '{device['name']}' ({op_sys})")
         os.makedirs(path, exist_ok=True)
-        with open(path + f"deploy_{device['name']}.sh", 'w', encoding='UTF-8') as f:
-            f.write(deploy)
-        with open(path + f"remove_{device['name']}.sh", 'w', encoding='UTF-8') as f:
-            f.write(remove)
-        run(['cp', root_path + f"nebula_{mesh['tun_device']}.service", path])
+        if op_sys == 'linux':
+            with open(path + f"deploy_{device['name']}.sh", 'w', encoding='UTF-8') as f:
+                f.write(deploy)
+            with open(path + f"remove_{device['name']}.sh", 'w', encoding='UTF-8') as f:
+                f.write(remove)
+            run(['cp', root_path + f"nebula_{mesh['tun_device']}.service", path])
+            if os.path.isfile(res_path + 'nebula'):
+                run(['cp', res_path + 'nebula', path])
+        elif op_sys == 'android' or op_sys == 'ios':
+            run(['cp', root_path + 'ca.qr', path])
+        else: # windows
+            pass
         run(['cp', root_path + 'ca.crt', path])
-        run(['cp', root_path + 'ca.qr', path])
-        if os.path.isfile(res_path + 'nebula'):
-            run(['cp', res_path + 'nebula', path])
         if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
             if is_new:
                 os.remove(path + 'host.crt')
@@ -78,7 +82,10 @@ def process_config(config, path):
             arguments.append('-groups')
             arguments.append(','.join(device['groups']))
         run(arguments)
-        run(['res/nebula-cert', 'print', '-path', path + 'host.crt', '-out-qr', path + 'host.qr'], stdout=PIPE)
+        if op_sys == 'linux' or op_sys == 'windows':
+            run(['res/nebula-cert', 'print', '-path', path + 'host.crt'], stdout=PIPE)
+        else: # mobile
+            run(['res/nebula-cert', 'print', '-path', path + 'host.crt', '-out-qr', path + 'host.qr'], stdout=PIPE)
         print(f"   Added config.yaml and key files\n   Certificate expires: {cert_date( path + 'host.crt')}")
 
 
@@ -121,7 +128,8 @@ def process_config(config, path):
             exit()
         for lighthouse in mesh['lighthouses']:
             path = root_path + 'lighthouse_' + lighthouse['name'] + '/'
-            generate_certs(path, lighthouse)
+            op_sys = lighthouse.get('os', 'linux')
+            generate_certs(path, lighthouse, op_sys)
             ips.append(lighthouse['nebula_ip'])
             conf = deepcopy(base)
             add_common(lighthouse, conf)
@@ -144,7 +152,8 @@ def process_config(config, path):
             return
         for node in mesh['nodes']:
             path = root_path  + 'node_' + node['name'] + '/'
-            generate_certs(path, node)
+            op_sys = node.get('os', 'linux')
+            generate_certs(path, node, op_sys)
             conf = deepcopy(base)
             add_common(node, conf)
             conf['static_host_map'] = {}
