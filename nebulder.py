@@ -39,7 +39,7 @@ from subprocess import run, PIPE
 def process_config(config, path):
 
     def cert_date(path):
-        arguments = ['res/nebula-cert', 'print', '-path', path]
+        arguments = ['nebula-cert', 'print', '-path', path]
         cert = run(arguments, stdout=PIPE)
         return re.search(r'Not After: (.*)', cert.stdout.decode(), re.MULTILINE).group(1) or 'ERROR in reading CERT file'
 
@@ -49,8 +49,8 @@ def process_config(config, path):
             print(f"   Key already exists - expires: {cert_date(root_path + 'ca.crt')}\n   Skipping key generation")
             return False
         else:
-            run(['res/nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', root_path + 'ca.crt', '-out-key', root_path + 'ca.key'])
-            run(['res/nebula-cert', 'print', '-path', root_path + 'ca.crt', '-out-qr', root_path + 'ca.qr'], stdout=PIPE)
+            run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', root_path + 'ca.crt', '-out-key', root_path + 'ca.key'])
+            run(['nebula-cert', 'print', '-path', root_path + 'ca.crt', '-out-qr', root_path + 'ca.qr'], stdout=PIPE)
             print(f"   Certificate expires: {cert_date( root_path + 'ca.crt')}")
             return True
 
@@ -63,12 +63,8 @@ def process_config(config, path):
             with open(path + f"remove_{device['name']}.sh", 'w', encoding='UTF-8') as f:
                 f.write(remove)
             run(['cp', root_path + f"nebula_{mesh['tun_device']}.service", path])
-            if os.path.isfile(res_path + 'nebula'):
-                run(['cp', res_path + 'nebula', path])
         elif op_sys == 'android' or op_sys == 'ios':
             run(['cp', root_path + 'ca.qr', path])
-        else: # windows
-            pass
         run(['cp', root_path + 'ca.crt', path])
         if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
             if is_new:
@@ -77,15 +73,15 @@ def process_config(config, path):
             else:
                 print(f"   Certificate already exists - expires: {cert_date( path + 'host.crt')}\n   Skipping key generation\n   Added config.yaml")
                 return
-        arguments = ['res/nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + 'host.crt', '-out-key', path + 'host.key', '-ca-crt', root_path + 'ca.crt', '-ca-key', root_path + 'ca.key', '-ip', f"{device['nebula_ip']}/24"]
+        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + 'host.crt', '-out-key', path + 'host.key', '-ca-crt', root_path + 'ca.crt', '-ca-key', root_path + 'ca.key', '-ip', f"{device['nebula_ip']}/24"]
         if 'groups' in device.keys():
             arguments.append('-groups')
             arguments.append(','.join(device['groups']))
         run(arguments)
         if op_sys == 'linux' or op_sys == 'windows':
-            run(['res/nebula-cert', 'print', '-path', path + 'host.crt'], stdout=PIPE)
+            run(['nebula-cert', 'print', '-path', path + 'host.crt'], stdout=PIPE)
         else: # mobile
-            run(['res/nebula-cert', 'print', '-path', path + 'host.crt', '-out-qr', path + 'host.qr'], stdout=PIPE)
+            run(['nebula-cert', 'print', '-path', path + 'host.crt', '-out-qr', path + 'host.qr'], stdout=PIPE)
         print(f"   Added config.yaml and key files\n   Certificate expires: {cert_date( path + 'host.crt')}")
 
 
