@@ -11,6 +11,13 @@
 ### Removed
 
 ____
+## [0.1.4] - 2023-12-12
+### Added
+
+- `os` attribute for each node - 'windows', 'android', 'ios', or 'linux' (default)
+  - determines which files are included in the generated node folder
+- `nebula` binary (ensure platform is correct: amd64, arm64, etc.) can be placed in the node folder and will be placed in /usr/bin/ on the target device (Linux only)
+
 ## [0.1.3] - 2023-10-24
 ### Changed
 
@@ -39,6 +46,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[0.1.4]: https://github.com/erykjj/nebulder/releases/tag/v0.1.4
 [0.1.3]: https://github.com/erykjj/nebulder/releases/tag/v0.1.3
 [0.1.2]: https://github.com/erykjj/nebulder/releases/tag/v0.1.2
 [0.1.1]: https://github.com/erykjj/nebulder/releases/tag/v0.1.1
