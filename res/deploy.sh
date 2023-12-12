@@ -7,7 +7,7 @@ if [ "$(id -u)" != "0" ]; then
  exit 1
 fi
 
-if [[ ! -x "./nebula" ]]; then
+if [[ ! -x "nebula" ]]; then
   if [[ ! -x "/usr/bin/nebula" ]]; then 
     echo -e "* nebula binary not found in /usr/bin!\n  Ensure you download the latest nebula binary  from https://github.com/slackhq/nebula/releases/latest\n"
     exit 1
@@ -24,16 +24,18 @@ if [[ -d "/etc/nebula/@@tun_device@@" ]]; then
   rm -rf /etc/nebula/@@tun_device@@
   echo -e "  Previous key/config files removed\n"
 else
-  if [[ -x "./nebula" ]]; then
-    echo -e "* Copying nebula binary to /usr/bin\n"
-    cp nebula /usr/bin/nebula
-  fi
   echo -e "* Creating 'nebula' user for binary and key/config file access\n"
   useradd -rM nebula > /dev/null 2>&1
-  chown nebula:nebula /usr/bin/nebula
-  chmod 770 /usr/bin/nebula
-  setcap cap_net_admin=+pe /usr/bin/nebula
 fi
+
+if [[ -x "nebula" ]]; then
+  echo -e "* Copying nebula binary to /usr/bin"
+  cp nebula /usr/bin/nebula
+fi
+chown nebula:nebula /usr/bin/nebula
+chmod 770 /usr/bin/nebula
+setcap cap_net_admin=+pe /usr/bin/nebula
+echo -e "  Set permissions on nebula binary\n"
 
 echo "* Putting key/config files in /etc/nebula/@@tun_device@@"
 mkdir -p /etc/nebula/@@tun_device@@
