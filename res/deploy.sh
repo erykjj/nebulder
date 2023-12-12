@@ -7,9 +7,11 @@ if [ "$(id -u)" != "0" ]; then
  exit 1
 fi
 
-if [[ ! -x "/usr/bin/nebula" ]]; then 
-  echo -e "* nebula binary not found!\n  Ensure you have the latest nebula binary in /usr/bin\n  You can download it from https://github.com/slackhq/nebula/releases/latest\n"
-  exit 1
+if [[ ! -x "./nebula" ]]; then
+  if [[ ! -x "/usr/bin/nebula" ]]; then 
+    echo -e "* nebula binary not found in /usr/bin!\n  Ensure you download the latest nebula binary  from https://github.com/slackhq/nebula/releases/latest\n"
+    exit 1
+  fi
 fi
 
 # for renewal/redeployment: remove previous keys/config - if any
@@ -22,6 +24,10 @@ if [[ -d "/etc/nebula/@@tun_device@@" ]]; then
   rm -rf /etc/nebula/@@tun_device@@
   echo -e "  Previous key/config files removed\n"
 else
+  if [[ -x "./nebula" ]]; then
+    echo -e "* Copying nebula binary to /usr/bin\n"
+    cp nebula /usr/bin/nebula
+  fi
   echo -e "* Creating 'nebula' user for binary and key/config file access\n"
   useradd -rM nebula > /dev/null 2>&1
   chown nebula:nebula /usr/bin/nebula
