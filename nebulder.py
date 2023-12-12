@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v0.1.3'
+VERSION = 'v0.1.4'
 
 
 import argparse, os, re, yaml
@@ -44,7 +44,7 @@ def process_config(config, path):
         return re.search(r'Not After: (.*)', cert.stdout.decode(), re.MULTILINE).group(1) or 'ERROR in reading CERT file'
 
     def certificate_authority():
-        print(f"Generating certificate authority for '{mesh['tun_device']}'")
+        print(f"Certificate authority for '{mesh['tun_device']}'")
         if os.path.isfile(root_path + 'ca.crt') or os.path.isfile(root_path + 'ca.key'):
             print(f"   Key already exists - expires: {cert_date(root_path + 'ca.crt')}\n   Skipping key generation")
             return False
@@ -64,6 +64,8 @@ def process_config(config, path):
         run(['cp', root_path + f"nebula_{mesh['tun_device']}.service", path])
         run(['cp', root_path + 'ca.crt', path])
         run(['cp', root_path + 'ca.qr', path])
+        if os.path.isfile(res_path + 'nebula'):
+            run(['cp', res_path + 'nebula', path])
         if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
             if is_new:
                 os.remove(path + 'host.crt')
