@@ -8,9 +8,29 @@ echo.
 
 set scriptpath=%~dp0
 echo Script directory: %scriptpath%
-set /p d= Target directory: 
-if NOT "%d:~-1%"=="\" set d=%d%\
+set /p targetpath= Target directory: 
+if NOT "%targetpath:~-1%"=="\" set targetpath=%targetpath%\
 echo.
+
+if NOT exist %scriptpath%\nebula.exe (
+    if NOT exist %targetpath%\nebula.exe (
+        echo ERROR: nebula.exe binary NOT FOUND!
+        set /p k= Press ENTER to terminate
+        goto :eof
+    ) else (
+        set binary=%targetpath%nebula.exe
+    )
+) else (
+    set binary=%scriptpath%nebula.exe
+)
+
+if NOT exist %scriptpath%\dist\windows\wintun\bin\ (
+    if NOT exist %targetpath%\dist\windows\wintun\bin\ (
+        echo ERROR: wintun.dll driver NOT FOUND!
+        set /p k= Press ENTER to terminate
+        goto :eof
+    )
+)
 
 echo Stopping nebula service
 %scriptpath%/nebula.exe -service stop
@@ -20,26 +40,26 @@ timeout /t 2 /nobreak > NUL
 echo.
 
 echo Updating config.yaml with correct paths
-echo Target directory: %d%
+echo Target directory: %targetpath%
 setlocal enableextensions disabledelayedexpansion
 set find=/etc/nebula/nebula10/
-set file=%scriptpath%/config.yaml
+set file=%scriptpath%\config.yaml
 for /f "delims=" %%i in ('type "%file%" ^& break ^> "%file%" ') do (
     set "line=%%i"
     setlocal enabledelayedexpansion
-    >>"%file%" echo(!line:%find%=%d%!
+    >>"%file%" echo(!line:%find%=%targetpath%!
     endlocal
 )
 echo.
 
-echo Copying new files to %d%
-xcopy %scriptpath%\* %d% /E /V /I /Y /Q
+echo Copying new files to %targetpath%
+xcopy %scriptpath%\* %targetpath% /E /V /I /Y /Q
 echo.
 
 echo Starting nebula service
-%d%\nebula.exe -service install -config %d%\config.yaml
+%targetpath%\nebula.exe -service install -config %targetpath%\config.yaml
 timeout /t 3 /nobreak > NUL
-%d%\nebula.exe -service start
+%targetpath%\nebula.exe -service start
 echo.
 
 echo Done. You can remove this deployment package
