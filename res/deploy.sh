@@ -30,7 +30,7 @@ fi
 
 if [[ ! -x "nebula" ]]; then
   if [[ ! -x "/usr/bin/nebula" ]]; then 
-    echo -e "* nebula binary not found in /usr/bin!\n  Ensure you download the latest nebula binary  from https://github.com/slackhq/nebula/releases/latest\n"
+    echo -e "* nebula binary not found in /usr/bin!\n  Ensure you download the latest nebula binary\n  from https://github.com/slackhq/nebula/releases/latest\n"
     exit 1
   fi
 fi
@@ -81,6 +81,6 @@ echo "  to allow traffic to the @@tun_device@@ network device port. Example:"
 echo "  # sudo ufw allow 4242/udp"
 echo -e "  # sudo ufw reload\n"
 
-echo -e "Done. If there were no errors, you can remove this script and the other files\n"
+echo -e "Done. If there were no errors, you can remove this deployment package\n"
 
 exit 0
