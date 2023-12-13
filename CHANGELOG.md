@@ -11,6 +11,12 @@
 ### Removed
 
 ____
+## [1.0.0] - 2023-12-13
+### Added
+
+- Windows batch file for automatic deployment (must be executed as Administrator)
+  - `nebula.exe` (for the appropriate Windows platform: amd64, arm64, etc.) and the `dist` folder (containing the required `wintun.dll` driver) can be placed inside the deployment package for installation/update
+
 ## [0.1.4] - 2023-12-12
 ### Added
 
@@ -46,6 +52,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[1.0.0]: https://github.com/erykjj/nebulder/releases/tag/v1.0.0
 [0.1.4]: https://github.com/erykjj/nebulder/releases/tag/v0.1.4
 [0.1.3]: https://github.com/erykjj/nebulder/releases/tag/v0.1.3
 [0.1.2]: https://github.com/erykjj/nebulder/releases/tag/v0.1.2
