@@ -43,6 +43,6 @@ echo -e "  Files removed\n"
 
 echo -e "You may also need to check your firewall rules and remove the nebula binary from /usr/bin\n"
 
-echo -e "Done. If there were no errors, you can remove this script\n"
+echo -e "Done. If there were no errors, you can remove deployment package\n"
 
 exit 0
