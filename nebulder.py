@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v0.1.4'
+VERSION = 'v0.1.5'
 
 
 import argparse, os, re, yaml
@@ -65,6 +65,8 @@ def process_config(config, path):
             run(['cp', root_path + f"nebula_{mesh['tun_device']}.service", path])
         elif op_sys == 'android' or op_sys == 'ios':
             run(['cp', root_path + 'ca.qr', path])
+        else: # windows
+            run(['cp', res_path + 'deploy.bat', f"{path}/deploy_{device['name']}.bat"])
         run(['cp', root_path + 'ca.crt', path])
         if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
             if is_new:
@@ -80,7 +82,7 @@ def process_config(config, path):
         run(arguments)
         if op_sys == 'linux' or op_sys == 'windows':
             run(['nebula-cert', 'print', '-path', path + 'host.crt'], stdout=PIPE)
-        else: # mobile
+        else: # mobile: generate QR
             run(['nebula-cert', 'print', '-path', path + 'host.crt', '-out-qr', path + 'host.qr'], stdout=PIPE)
         print(f"   Added config.yaml and key files\n   Certificate expires: {cert_date( path + 'host.crt')}")
 
