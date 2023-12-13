@@ -15,6 +15,8 @@ echo.
 if NOT exist %scriptpath%\nebula.exe (
     if NOT exist %targetpath%\nebula.exe (
         echo ERROR: nebula.exe binary NOT FOUND!
+        echo Ensure you download the latest for your platform
+        echo from https://github.com/slackhq/nebula/releases/latest
         set /p k= Press ENTER to terminate
         goto :eof
     ) else (
@@ -27,6 +29,8 @@ if NOT exist %scriptpath%\nebula.exe (
 if NOT exist %scriptpath%\dist\windows\wintun\bin\ (
     if NOT exist %targetpath%\dist\windows\wintun\bin\ (
         echo ERROR: wintun.dll driver NOT FOUND!
+        echo Ensure you download the latest for your platform
+        echo from https://github.com/slackhq/nebula/releases/latest
         set /p k= Press ENTER to terminate
         goto :eof
     )
