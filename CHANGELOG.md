@@ -4,8 +4,6 @@
 
 ### Added
 
-- Script to stop/uninstall nebula service on Windows
-
 ### Changed
 
 ### Fixed
@@ -13,6 +11,11 @@
 ### Removed
 
 ____
+## [1.0.1] - 2023-12-14
+### Added
+
+- Script to stop/uninstall nebula service on Windows
+
 ## [1.0.0] - 2023-12-13
 ### Added
 
@@ -54,6 +57,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[1.0.1]: https://github.com/erykjj/nebulder/releases/tag/v1.0.1
 [1.0.0]: https://github.com/erykjj/nebulder/releases/tag/v1.0.0
 [0.1.4]: https://github.com/erykjj/nebulder/releases/tag/v0.1.4
 [0.1.3]: https://github.com/erykjj/nebulder/releases/tag/v0.1.3
