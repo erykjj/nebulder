@@ -4,6 +4,8 @@
 
 ### Added
 
+- Script to stop/uninstall nebula service on Windows
+
 ### Changed
 
 ### Fixed
