@@ -1,11 +1,11 @@
 # nebulder
 
-## Python script to automate the generation of interface configs for [Nebula](https://nebula.defined.net/docs) mesh/overlay networks
+## Python script to "build" deployment packages for [Nebula](https://nebula.defined.net/docs) mesh/overlay networks
 
 The script has only been tested under Linux and the lates `nebula-cert` binary has to be in your path.
 
 1. Define your mesh network by creating an 'outline' (config file in YAML format) listing all the nodes. See the [*sample_outline.yaml*](https://github.com/erykjj/nebulder/blob/main/res/sample_outline.yaml) for format layout and available attributes
-2. Execute the script. It will output the `config.yaml` and necessary key files for each device/node in its own deployment package/folder
+2. Execute the script. It will generation the `config.yaml` interface configuration file and other necessary key files for each device/node in its own deployment package/folder
 3. If installing for the first time (or updating), place the latest binaries from https://github.com/slackhq/nebula/releases/latest into each folder - make sure they are for the correct platform (amd64, arm64, etc.)
     - Linux will need the `nebula` binary (if not already on the target system)
     - Windows will need `nebula.exe` as well as the `dist` folder and all its contents (`wintun.dll` driver)
