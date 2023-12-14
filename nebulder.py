@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v1.0.0'
+VERSION = 'v1.0.1'
 
 
 import argparse, os, re, yaml
@@ -67,6 +67,7 @@ def process_config(config, path):
             run(['cp', root_path + 'ca.qr', path])
         else: # windows
             run(['cp', res_path + 'deploy.bat', f"{path}/deploy_{device['name']}.bat"])
+            run(['cp', res_path + 'remove.bat', path])
         run(['cp', root_path + 'ca.crt', path])
         if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
             if is_new:
