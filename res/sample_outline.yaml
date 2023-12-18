@@ -6,7 +6,8 @@ tun_device: nebula1     # name of the network interface created on each node
 
 lighthouses:                    # at least one lighthouse node required
   - name: raspi
-    os: linux                   # android, ios, windows or linux (default)
+    os: linux                   # android, ios, macos, windows
+                                # or linux (default)
     nebula_ip: 10.1.1.1         # private 'LAN' of choice
     listen_port: 4242           # must be different for each nebula interface
     public_ip:                  # may need to open NAT port-forwarding...
