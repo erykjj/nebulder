@@ -15,6 +15,7 @@ The script has only been tested under Linux and the lates `nebula-cert` binary h
       - A `remove.sh` script is also included for removing/cleaning up
     - On **Windows**, execute (**as Administrator**) the `deploy.bat` batch file which will ask for a target directory where all the required files will be placed, and will install and start a Windows service
     - For installation on mobile devices (**Android and iOS**), follow the [Nebula documentation](https://nebula.defined.net/docs/guides/quick-start/). QR codes are included in the package to make the process simpler, but there is no script included
+    - For **MacOS**, only the configuration and key-files are provided. You are on your own to configure a service on target device
 6. If a device is to be used as a **lighthouse**, you may also have to tweak your system firewall to allow the UDP connections to get through to your network interface, and NAT port-forwarding on your router may also be required to let UDP through to the port your lighthouse is listening on
 
 Keep in mind that (by design and by default) Nebula certificate authority keys expire in 1 year, and so do all the certificates signed with it. Within that period, you can re-use the `ca.key` to generate more devices/nodes, or update existing ones with new binaries. So, keep `ca.key` safe. To renew (i.e., generate new certificate authority keys), remove the `ca.key` and `ca.crt` files from the destination directory, re-run the `nebulder.py` script, and deploy again on every device. 
