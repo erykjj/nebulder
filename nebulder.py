@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v1.0.1'
+VERSION = 'v1.0.2'
 
 
 import argparse, os, re, yaml
@@ -65,6 +65,8 @@ def process_config(config, path):
             run(['cp', root_path + f"nebula_{mesh['tun_device']}.service", path])
         elif op_sys == 'android' or op_sys == 'ios':
             run(['cp', root_path + 'ca.qr', path])
+        elif op_sys == 'macos':
+            pass
         else: # windows
             run(['cp', res_path + 'deploy.bat', f"{path}/deploy_{device['name']}.bat"])
             run(['cp', res_path + 'remove.bat', path])
@@ -81,7 +83,7 @@ def process_config(config, path):
             arguments.append('-groups')
             arguments.append(','.join(device['groups']))
         run(arguments)
-        if op_sys == 'linux' or op_sys == 'windows':
+        if op_sys == 'linux' or op_sys == 'windows' or op_sys == 'macos':
             run(['nebula-cert', 'print', '-path', path + 'host.crt'], stdout=PIPE)
         else: # mobile: generate QR
             run(['nebula-cert', 'print', '-path', path + 'host.crt', '-out-qr', path + 'host.qr'], stdout=PIPE)
