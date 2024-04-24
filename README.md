@@ -22,6 +22,9 @@ Keep in mind that (by design and by default) Nebula certificate authority keys e
 
 ____
 ## Command-line usage
+
+Requires PyYAML: `pip install pyyaml`
+
 ```
 python3 nebulder.py [-h] [-v] [-o directory] Outline
 
