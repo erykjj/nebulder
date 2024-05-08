@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v1.1.0'
+VERSION = 'v1.1.1'
 
 
 import argparse, os, re, shutil, yaml
@@ -92,6 +92,8 @@ def process_config(config, path):
 
 
     def zip_package(path, archive):
+        if not args['z']:
+            return
         with ZipFile(f'{path}/{archive}.zip', 'w', compression=ZIP_DEFLATED) as zip_file:
             for f in os.listdir(path + '/' + archive + '/'):
                 zip_file.write(f'{path}/{archive}/{f}', f)
@@ -209,6 +211,7 @@ parser = argparse.ArgumentParser(description="Generate Nebula configs based on a
 parser.add_argument('-v', '--version', action='version', version=f"{APP} {VERSION}")
 parser.add_argument("Outline", help='Network outline (YAML format)')
 parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where Outline is located)')
+parser.add_argument('-z', action='store_true', help='Zip packages')
 args = vars(parser.parse_args())
 if args['o']:
     path = args['o'].rstrip('/')
