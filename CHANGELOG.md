@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added -z option to ZIP generated package directories
+
 ### Changed
 
 ### Fixed
