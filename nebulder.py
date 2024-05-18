@@ -27,13 +27,14 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v1.0.2'
+VERSION = 'v1.1.1'
 
 
-import argparse, os, re, yaml
+import argparse, os, re, shutil, yaml
 from copy import deepcopy
 from pathlib import Path
 from subprocess import run, PIPE
+from zipfile import ZipFile, ZIP_DEFLATED
 
 
 def process_config(config, path):
@@ -89,6 +90,14 @@ def process_config(config, path):
             run(['nebula-cert', 'print', '-path', path + 'host.crt', '-out-qr', path + 'host.qr'], stdout=PIPE)
         print(f"   Added config.yaml and key files\n   Certificate expires: {cert_date( path + 'host.crt')}")
 
+
+    def zip_package(path, archive):
+        if not args['z']:
+            return
+        with ZipFile(f'{path}/{archive}.zip', 'w', compression=ZIP_DEFLATED) as zip_file:
+            for f in os.listdir(path + '/' + archive + '/'):
+                zip_file.write(f'{path}/{archive}/{f}', f)
+        shutil.rmtree(path + '/' + archive, ignore_errors=True)
 
     def add_common(node, conf):
 
@@ -146,6 +155,7 @@ def process_config(config, path):
             with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:
                 f.write(f"# Nebula config for lighthouse '{lighthouse['name']}' on '{mesh['tun_device']}' network device: {lighthouse['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
+            zip_package(root_path, 'lighthouse_' + lighthouse['name'])
 
     def process_nodes():
         if 'nodes' not in mesh.keys():
@@ -167,6 +177,7 @@ def process_config(config, path):
             with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:
                 f.write(f"# Nebula config for node '{node['name']}' on '{mesh['tun_device']}' network device: {node['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
+            zip_package(root_path, 'node_' + node['name'])
 
 
     res_path = str(Path(__file__).resolve().parent) + '/res/'
@@ -200,6 +211,7 @@ parser = argparse.ArgumentParser(description="Generate Nebula configs based on a
 parser.add_argument('-v', '--version', action='version', version=f"{APP} {VERSION}")
 parser.add_argument("Outline", help='Network outline (YAML format)')
 parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where Outline is located)')
+parser.add_argument('-z', action='store_true', help='Zip packages')
 args = vars(parser.parse_args())
 if args['o']:
     path = args['o'].rstrip('/')
