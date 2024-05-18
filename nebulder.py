@@ -63,15 +63,15 @@ def process_config(config, path):
                 f.write(deploy)
             with open(path + f"remove_{device['name']}.sh", 'w', encoding='UTF-8') as f:
                 f.write(remove)
-            run(['cp', root_path + f"nebula_{mesh['tun_device']}.service", path])
+            shutil.copy(root_path + f"nebula_{mesh['tun_device']}.service", path)
         elif op_sys == 'android' or op_sys == 'ios':
-            run(['cp', root_path + 'ca.qr', path])
+            shutil.copy(root_path + 'ca.qr', path)
         elif op_sys == 'macos':
             pass
         else: # windows
-            run(['cp', res_path + 'deploy.bat', f"{path}/deploy_{device['name']}.bat"])
-            run(['cp', res_path + 'remove.bat', path])
-        run(['cp', root_path + 'ca.crt', path])
+            shutil.copy(res_path + 'deploy.bat', f"{path}/deploy_{device['name']}.bat")
+            shutil.copy(res_path + 'remove.bat', path)
+        shutil.copy(root_path + 'ca.crt', path)
         if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
             if is_new:
                 os.remove(path + 'host.crt')
@@ -203,7 +203,7 @@ def process_config(config, path):
     ips = []
     process_lighthouses()
     process_nodes()
-    run(['rm', root_path + f"nebula_{mesh['tun_device']}.service"])
+    os.remove(root_path + f"nebula_{mesh['tun_device']}.service")
     print(f'\nCompleted successfully\n   See output in {root_path}\n')
 
 
