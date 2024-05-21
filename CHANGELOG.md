@@ -4,8 +4,6 @@
 
 ### Added
 
-- Added -z option to ZIP generated package directories
-
 ### Changed
 
 ### Fixed
@@ -13,6 +11,16 @@
 ### Removed
 
 ____
+## [1.1.1] - 2024-05-21
+
+### Added
+
+- Added -z option to ZIP generated package directories
+
+### Changed
+
+- Use shutil and os functions to cp, mv and rm
+
 ## [1.0.2] - 2023-12-18
 ### Added
 
@@ -64,6 +72,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[1.1.1]: https://github.com/erykjj/nebulder/releases/tag/v1.1.1
 [1.0.2]: https://github.com/erykjj/nebulder/releases/tag/v1.0.2
 [1.0.1]: https://github.com/erykjj/nebulder/releases/tag/v1.0.1
 [1.0.0]: https://github.com/erykjj/nebulder/releases/tag/v1.0.0
