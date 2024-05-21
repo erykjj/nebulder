@@ -26,7 +26,9 @@ ____
 Requires PyYAML: `pip install pyyaml`
 
 ```
-python3 nebulder.py [-h] [-v] [-o directory] Outline
+python3 nebulder.py [-h] [-v] [-o directory] [-z] Outline
+
+Generate Nebula configs based on a network outline
 
 positional arguments:
   Outline        Network outline (YAML format)
@@ -35,6 +37,7 @@ options:
   -h, --help     show this help message and exit
   -v, --version  show program's version number and exit
   -o directory   Output directory (defaults to dir where Outline is located)
+  -z             Zip packages
 ```
 ____
 ## Feedback
