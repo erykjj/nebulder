@@ -11,6 +11,11 @@
 ### Removed
 
 ____
+## [1.1.2] - 2025-07-12
+
+### Fixed
+- Fixed regex flag passed as count parameter
+
 ## [1.1.1] - 2024-05-21
 
 ### Added
@@ -72,6 +77,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[1.1.2]: https://github.com/erykjj/nebulder/releases/tag/v1.1.2
 [1.1.1]: https://github.com/erykjj/nebulder/releases/tag/v1.1.1
 [1.0.2]: https://github.com/erykjj/nebulder/releases/tag/v1.0.2
 [1.0.1]: https://github.com/erykjj/nebulder/releases/tag/v1.0.1
