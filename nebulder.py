@@ -5,7 +5,7 @@
 
   Description:    Generate Nebula configs based on a network outline
 
-  MIT License:    Copyright (c) 2024 Eryk J.
+  MIT License:    Copyright (c) 2025 Eryk J.
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v1.1.1'
+VERSION = 'v1.1.2'
 
 
 import argparse, os, re, shutil, yaml
@@ -191,7 +191,7 @@ def process_config(config, path):
     with open(res_path + 'nebula.service') as f:
         txt = f.read()
     with open(root_path + f"nebula_{mesh['tun_device']}.service", 'w', encoding='UTF-8') as f:
-        f.write(re.sub('@@tun_device@@', mesh['tun_device'], txt, re.MULTILINE))
+        f.write(re.sub('@@tun_device@@', mesh['tun_device'], txt, flags=re.MULTILINE))
 
     with open(res_path + 'deploy.sh') as f:
         deploy = f.read().replace('@@tun_device@@', mesh['tun_device'])
