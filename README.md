@@ -10,7 +10,7 @@ The script has only been tested under Linux and the lates `nebula-cert` binary h
     - Linux will need the `nebula` binary (if not already on the target system)
     - Windows will need `nebula.exe` as well as the `dist` folder and all its contents (`wintun.dll` driver)
 4. Copy each deployment package to the corresponding device
-5. Execute the deployment script on each device
+5. Execute the deployment script on each device (from within package folder copied onto each device):
     - On **Linux** (requires `systemd`) execute (**as root**) the `deploy.sh` script to install or update. The script will (re)place the binary in /usr/bin and the config and keys in /etc/nebula, and will create and (re)start a `systemd` service
       - A `remove.sh` script is also included for removing/cleaning up
     - On **Windows**, execute (**as Administrator**) the `deploy.bat` batch file which will ask for a target directory where all the required files will be placed, and will install and start a Windows service
