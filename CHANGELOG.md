@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Fixed date parsing
+
 ### Removed
 
 ____
