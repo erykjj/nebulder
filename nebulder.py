@@ -30,7 +30,7 @@ APP = 'nebulder'
 VERSION = 'v1.1.2'
 
 
-import argparse, os, re, shutil, yaml
+import argparse, json, os, re, shutil, yaml
 from copy import deepcopy
 from pathlib import Path
 from subprocess import run, PIPE
@@ -42,7 +42,9 @@ def process_config(config, path):
     def cert_date(path):
         arguments = ['nebula-cert', 'print', '-path', path]
         cert = run(arguments, stdout=PIPE)
-        return re.search(r'Not After: (.*)', cert.stdout.decode(), re.MULTILINE).group(1) or 'ERROR in reading CERT file'
+        cert_data = json.loads(cert.stdout)
+        not_after = cert_data['details']['notAfter']
+        return not_after
 
     def certificate_authority():
         print(f"Certificate authority for '{mesh['tun_device']}'")
