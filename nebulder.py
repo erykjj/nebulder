@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v1.2.0'
+VERSION = 'v1.3.0'
 
 
 import argparse, json, os, re, shutil, yaml
@@ -61,9 +61,9 @@ def process_config(config, path):
         print(f"\nProcessing device '{device['name']}' ({op_sys})")
         os.makedirs(path, exist_ok=True)
         if op_sys == 'linux':
-            with open(path + f"deploy_{device['name']}.sh", 'w', encoding='UTF-8') as f:
+            with open(path + 'deploy.sh', 'w', encoding='UTF-8') as f:
                 f.write(deploy)
-            with open(path + f"remove_{device['name']}.sh", 'w', encoding='UTF-8') as f:
+            with open(path + 'remove.sh', 'w', encoding='UTF-8') as f:
                 f.write(remove)
             shutil.copy(root_path + f"nebula_{mesh['tun_device']}.service", path)
         elif op_sys == 'android' or op_sys == 'ios':
@@ -71,7 +71,7 @@ def process_config(config, path):
         elif op_sys == 'macos':
             pass
         else: # windows
-            shutil.copy(res_path + 'deploy.bat', f"{path}/deploy_{device['name']}.bat")
+            shutil.copy(res_path + 'deploy.bat', path)
             shutil.copy(res_path + 'remove.bat', path)
         shutil.copy(root_path + 'ca.crt', path)
         if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
