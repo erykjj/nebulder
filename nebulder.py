@@ -96,10 +96,13 @@ def process_config(config, path):
     def zip_package(path, archive):
         if not args['z']:
             return
-        with ZipFile(f'{path}/{archive}.zip', 'w', compression=ZIP_DEFLATED) as zip_file:
+        elif args['z'] == True:
+            version = ''
+        else:
+            version = '_' + args['z']
+        with ZipFile(f'{path}/{archive}{version}.zip', 'w', compression=ZIP_DEFLATED) as zip_file:
             for f in os.listdir(path + '/' + archive + '/'):
                 zip_file.write(f'{path}/{archive}/{f}', f)
-        shutil.rmtree(path + '/' + archive, ignore_errors=True)
 
     def add_common(node, conf):
 
@@ -213,7 +216,7 @@ parser = argparse.ArgumentParser(description="Generate Nebula configs based on a
 parser.add_argument('-v', '--version', action='version', version=f"{APP} {VERSION}")
 parser.add_argument("Outline", help='Network outline (YAML format)')
 parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where Outline is located)')
-parser.add_argument('-z', action='store_true', help='Zip packages')
+parser.add_argument('-z', nargs='?', metavar='version', const=True, default=False, help='Zip packages (optionally with version)')
 args = vars(parser.parse_args())
 if args['o']:
     path = args['o'].rstrip('/')
