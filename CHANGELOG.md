@@ -4,7 +4,11 @@
 
 ### Added
 
+- Added version file to packages
+
 ### Changed
+
+- Added version number to zipped package names
 
 ### Fixed
 
