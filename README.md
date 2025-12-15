@@ -26,7 +26,7 @@ ____
 Requires PyYAML: `pip install pyyaml`
 
 ```
-python3 nebulder.py [-h] [-v] [-o directory] [-z] Outline
+usage: python3 nebulder.py [-h] [-v] [-o directory] [-z] [-V id] Outline
 
 Generate Nebula configs based on a network outline
 
@@ -38,7 +38,10 @@ options:
   -v, --version  show program's version number and exit
   -o directory   Output directory (defaults to dir where Outline is located)
   -z             Zip packages
+  -V id          Config version number or id (optional)
 ```
+
+NOTE: `-V id` is optional; versioning is via an auto-incrementing *version.txt* file (starting at "v1.0.0" by default), or one can specify the version number/id
 ____
 ## Feedback
 
