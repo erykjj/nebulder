@@ -37,6 +37,20 @@ from subprocess import run, PIPE
 from zipfile import ZipFile, ZIP_DEFLATED
 
 
+def get_version(path):
+    version_file='version.txt'
+    print(path, version_file)
+    if not os.path.exists(path + version_file):
+        return 'v1.0.0'
+    with open(path + version_file, 'r') as f:
+        current = f.read().strip()
+    match = re.match(r'v?(\d+)\.(\d+)\.(\d+)', current)
+    if not match:
+        return 'v1.0.0'
+    major, minor, patch = map(int, match.groups())
+    patch += 1
+    return f'v{major}.{minor}.{patch}'
+
 def process_config(config, path):
 
     def cert_date(path):
@@ -94,15 +108,14 @@ def process_config(config, path):
 
 
     def zip_package(path, archive):
+        base_path = f'{path}/{archive}'
+        with open(base_path + '/version', 'w') as f:
+            f.write(args['V'] + '\n')
         if not args['z']:
             return
-        elif args['z'] == True:
-            version = ''
-        else:
-            version = '_' + args['z']
-        with ZipFile(f'{path}/{archive}{version}.zip', 'w', compression=ZIP_DEFLATED) as zip_file:
+        with ZipFile(f'{base_path}_{args['V']}.zip', 'w', compression=ZIP_DEFLATED) as zip_file:
             for f in os.listdir(path + '/' + archive + '/'):
-                zip_file.write(f'{path}/{archive}/{f}', f)
+                zip_file.write(f'{base_path}/{f}', f)
 
     def add_common(node, conf):
 
@@ -193,6 +206,10 @@ def process_config(config, path):
 
     root_path = path + '/' + mesh['tun_device'] + '/'
     os.makedirs(root_path, exist_ok=True)
+    if not args['V']:
+        args['V'] = get_version(root_path)
+    with open(root_path + 'version.txt', 'w') as f:
+        f.write(args['V'] + '\n')
     with open(res_path + 'nebula.service') as f:
         txt = f.read()
     with open(root_path + f"nebula_{mesh['tun_device']}.service", 'w', encoding='UTF-8') as f:
@@ -216,7 +233,9 @@ parser = argparse.ArgumentParser(description="Generate Nebula configs based on a
 parser.add_argument('-v', '--version', action='version', version=f"{APP} {VERSION}")
 parser.add_argument("Outline", help='Network outline (YAML format)')
 parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where Outline is located)')
-parser.add_argument('-z', nargs='?', metavar='version', const=True, default=False, help='Zip packages (optionally with version)')
+parser.add_argument('-z', action='store_true', help='Zip packages')
+parser.add_argument('-V', metavar='id', help='Config version number or id')
+
 args = vars(parser.parse_args())
 if args['o']:
     path = args['o'].rstrip('/')
