@@ -37,21 +37,21 @@ from subprocess import run, PIPE
 from zipfile import ZipFile, ZIP_DEFLATED
 
 
-def get_version(path):
-    version_file='version.txt'
-    print(path, version_file)
-    if not os.path.exists(path + version_file):
-        return 'v1.0.0'
-    with open(path + version_file, 'r') as f:
-        current = f.read().strip()
-    match = re.match(r'v?(\d+)\.(\d+)\.(\d+)', current)
-    if not match:
-        return 'v1.0.0'
-    major, minor, patch = map(int, match.groups())
-    patch += 1
-    return f'v{major}.{minor}.{patch}'
-
 def process_config(config, path):
+
+    def get_version(path):
+        version_file='version.txt'
+        print(path, version_file)
+        if not os.path.exists(path + version_file):
+            return 'v1.0.0'
+        with open(path + version_file, 'r') as f:
+            current = f.read().strip()
+        match = re.match(r'v?(\d+)\.(\d+)\.(\d+)', current)
+        if not match:
+            return 'v1.0.0'
+        major, minor, patch = map(int, match.groups())
+        patch += 1
+        return f'v{major}.{minor}.{patch}'
 
     def cert_date(path):
         arguments = ['nebula-cert', 'print', '-path', path]
@@ -234,7 +234,7 @@ parser.add_argument('-v', '--version', action='version', version=f"{APP} {VERSIO
 parser.add_argument("Outline", help='Network outline (YAML format)')
 parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where Outline is located)')
 parser.add_argument('-z', action='store_true', help='Zip packages')
-parser.add_argument('-V', metavar='id', help='Config version number or id')
+parser.add_argument('-V', metavar='id', help='Config version number or id (optional)')
 
 args = vars(parser.parse_args())
 if args['o']:
