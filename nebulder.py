@@ -170,6 +170,8 @@ def process_config(config, path):
                     ip += f":{lighthouse['listen_port']}"
                 host_map.append(ip)
             relays[lighthouse['nebula_ip']] = host_map
+            with open(path + 'node', 'w', encoding='UTF-8') as f:
+                f.write('lighthouse_' + lighthouse['name'])
             with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:
                 f.write(f"# Nebula config for lighthouse '{lighthouse['name']}' on '{mesh['tun_device']}' network device: {lighthouse['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
@@ -192,6 +194,8 @@ def process_config(config, path):
             if 'advertise_addrs' in node.keys():
                 conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
             conf['relay'] = { 'relays': ips }
+            with open(path + 'node', 'w', encoding='UTF-8') as f:
+                f.write('node_' + node['name'])
             with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:
                 f.write(f"# Nebula config for node '{node['name']}' on '{mesh['tun_device']}' network device: {node['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)

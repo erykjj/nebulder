@@ -60,12 +60,13 @@ echo -e "  Set permissions on nebula binary\n"
 
 echo "* Putting key/config files in /etc/nebula/@@tun_device@@"
 mkdir -p /etc/nebula/@@tun_device@@
-cp -t /etc/nebula/@@tun_device@@ host.* ca.crt config.yaml version
+cp -t /etc/nebula/@@tun_device@@ host.* ca.crt config.yaml version node
 echo "  Files copied"
 chown -R nebula:nebula /etc/nebula/@@tun_device@@
 chmod 600 /etc/nebula/@@tun_device@@/*
 chmod 644 /etc/nebula/@@tun_device@@/config.yaml
 chmod 644 /etc/nebula/@@tun_device@@/version
+chmod 644 /etc/nebula/@@tun_device@@/node
 echo -e "  Permissions changed to rw------- (600)\n"
 
 echo "* Setting up systemd: /etc/systemd/system/nebula_@@tun_device@@.service"
