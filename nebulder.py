@@ -155,6 +155,13 @@ def process_config(config, path):
             print('*** ERROR: No lighthouse defined!!\n')
             exit()
         for lighthouse in mesh['lighthouses']:
+            host_map = []
+            for ip in lighthouse['public_ip']:
+                if ':' not in ip:
+                    ip += f":{lighthouse['listen_port']}"
+                host_map.append(ip)
+            relays[lighthouse['nebula_ip']] = host_map
+        for lighthouse in mesh['lighthouses']:
             path = root_path + 'lighthouse_' + lighthouse['name'] + '/'
             op_sys = lighthouse.get('os', 'linux')
             generate_certs(path, lighthouse, op_sys)
@@ -164,12 +171,11 @@ def process_config(config, path):
             conf['listen'] = { 'port': lighthouse['listen_port'] }
             conf['lighthouse'] = { 'am_lighthouse': True }
             conf['relay'] = { 'am_relay': True, 'use_relays': False }
-            host_map = []
-            for ip in lighthouse['public_ip']:
-                if ':' not in ip:
-                    ip += f":{lighthouse['listen_port']}"
-                host_map.append(ip)
-            relays[lighthouse['nebula_ip']] = host_map
+            conf['static_host_map'] = {}
+            for host in relays.keys():
+                if host == lighthouse['nebula_ip']:
+                    continue
+                conf['static_host_map'][host] = list(relays[host])
             with open(path + 'node', 'w', encoding='UTF-8') as f:
                 f.write('lighthouse_' + lighthouse['name'])
             with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:
