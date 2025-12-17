@@ -62,13 +62,13 @@ def process_config(config, path):
 
     def certificate_authority():
         print(f"Certificate authority for '{mesh['tun_device']}'")
-        if os.path.isfile(root_path + 'ca.crt') or os.path.isfile(root_path + 'ca.key'):
-            print(f"   Key already exists - expires: {cert_date(root_path + 'ca.crt')}\n   Skipping key generation")
+        if os.path.isfile(conf_path + 'ca.crt') and os.path.isfile(conf_path + 'ca.key'):
+            print(f"   Key already exists - expires: {cert_date(conf_path + 'ca.crt')}\n   Skipping key generation")
             return False
         else:
-            run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', root_path + 'ca.crt', '-out-key', root_path + 'ca.key'])
-            run(['nebula-cert', 'print', '-path', root_path + 'ca.crt', '-out-qr', root_path + 'ca.qr'], stdout=PIPE)
-            print(f"   Certificate expires: {cert_date( root_path + 'ca.crt')}")
+            run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', conf_path + 'ca.crt', '-out-key', conf_path + 'ca.key'])
+            run(['nebula-cert', 'print', '-path', conf_path + 'ca.crt', '-out-qr', conf_path + 'ca.qr'], stdout=PIPE)
+            print(f"   Certificate expires: {cert_date( conf_path + 'ca.crt')}")
             return True
 
     def generate_certs(path, device, op_sys):
@@ -81,13 +81,13 @@ def process_config(config, path):
                 f.write(remove)
             shutil.copy(root_path + f"nebula_{mesh['tun_device']}.service", path)
         elif op_sys == 'android' or op_sys == 'ios':
-            shutil.copy(root_path + 'ca.qr', path)
+            shutil.copy(conf_path + 'ca.qr', path)
         elif op_sys == 'macos':
             pass
         else: # windows
             shutil.copy(res_path + 'deploy.bat', path)
             shutil.copy(res_path + 'remove.bat', path)
-        shutil.copy(root_path + 'ca.crt', path)
+        shutil.copy(conf_path + 'ca.crt', path)
         if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
             if is_new:
                 os.remove(path + 'host.crt')
@@ -95,7 +95,7 @@ def process_config(config, path):
             else:
                 print(f"   Certificate already exists - expires: {cert_date( path + 'host.crt')}\n   Skipping key generation\n   Added config.yaml")
                 return
-        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + 'host.crt', '-out-key', path + 'host.key', '-ca-crt', root_path + 'ca.crt', '-ca-key', root_path + 'ca.key', '-ip', f"{device['nebula_ip']}/24"]
+        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + 'host.crt', '-out-key', path + 'host.key', '-ca-crt', conf_path + 'ca.crt', '-ca-key', conf_path + 'ca.key', '-ip', f"{device['nebula_ip']}/24"]
         if 'groups' in device.keys():
             arguments.append('-groups')
             arguments.append(','.join(device['groups']))
@@ -215,6 +215,7 @@ def process_config(config, path):
         mesh = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
     root_path = path + '/' + mesh['tun_device'] + '/'
+    conf_path = path + '/'
     os.makedirs(root_path, exist_ok=True)
     if not args['V']:
         args['V'] = get_version(root_path)
