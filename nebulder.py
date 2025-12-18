@@ -62,11 +62,11 @@ def process_config(config, path):
 
     def certificate_authority():
         print(f"Certificate authority for '{mesh['tun_device']}'")
-        if os.path.isfile(conf_path + mesh['tun_device'] + '_ca.crt') and os.path.isfile(conf_path + mesh['tun_device'] + '_ca.key'):
+        if os.path.isfile(conf_path + mesh['tun_device'] + '_ca.crt') and os.path.isfile(conf_path + mesh['tun_device'] + '_ca.private.key'):
             print(f"   Key already exists - expires: {cert_date(conf_path + mesh['tun_device'] + '_ca.crt')}\n   Skipping key generation")
             return False
         else:
-            run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', conf_path + mesh['tun_device'] + '_ca.crt', '-out-key', conf_path + mesh['tun_device'] + '_ca.key'])
+            run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', conf_path + mesh['tun_device'] + '_ca.crt', '-out-key', conf_path + mesh['tun_device'] + '_ca.private.key'])
             run(['nebula-cert', 'print', '-path', conf_path + mesh['tun_device']+ '_ca.crt', '-out-qr', conf_path + mesh['tun_device'] + '_ca.qr'], stdout=PIPE)
             print(f"   Certificate expires: {cert_date( conf_path + mesh['tun_device'] + '_ca.crt')}")
             return True
@@ -95,7 +95,7 @@ def process_config(config, path):
             else:
                 print(f"   Certificate already exists - expires: {cert_date( path + 'host.crt')}\n   Skipping key generation\n   Added config.yaml")
                 return
-        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + 'host.crt', '-out-key', path + 'host.key', '-ca-crt', conf_path + mesh['tun_device'] + '_ca.crt', '-ca-key', conf_path + mesh['tun_device'] + '_ca.key', '-ip', f"{device['nebula_ip']}/24"]
+        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + 'host.crt', '-out-key', path + 'host.key', '-ca-crt', conf_path + mesh['tun_device'] + '_ca.crt', '-ca-key', conf_path + mesh['tun_device'] + '_ca.private.key', '-ip', f"{device['nebula_ip']}/24"]
         if 'groups' in device.keys():
             arguments.append('-groups')
             arguments.append(','.join(device['groups']))
