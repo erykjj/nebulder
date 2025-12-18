@@ -69,14 +69,22 @@ chmod 644 /etc/nebula/@@tun_device@@/version
 chmod 644 /etc/nebula/@@tun_device@@/node
 echo -e "  Permissions changed to rw------- (600)\n"
 
-echo "* Setting up systemd: /etc/systemd/system/nebula_@@tun_device@@.service"
-cp nebula_@@tun_device@@.service /etc/systemd/system/
+echo "* Setting up systemd unit files in /etc/systemd/system/"
+cp nebula_@@tun_device@@.service nebula_@@tun_device@@-update.service nebula_@@tun_device@@-update.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable nebula_@@tun_device@@.service > /dev/null 2>&1
-echo "  Service enabled"
+echo "  nebula_@@tun_device@@.service enabled"
 systemctl start nebula_@@tun_device@@.service
-echo "  Service started"
-echo -e "  Check status with 'systemctl status nebula_@@tun_device@@.service'\n"
+echo "  nebula_@@tun_device@@.service started"
+systemctl enable nebula_@@tun_device@@-update.service > /dev/null 2>&1
+echo "  nebula_@@tun_device@@-update.service enabled"
+systemctl start nebula_@@tun_device@@-update.service
+echo "  nebula_@@tun_device@@-update.service started"
+systemctl enable nebula_@@tun_device@@-update.timer > /dev/null 2>&1
+echo "  nebula_@@tun_device@@-update.timer enabled"
+systemctl start nebula_@@tun_device@@-update.timer
+echo "  nebula_@@tun_device@@-update.timer started"
+echo -e "  Check status with 'systemctl status | grep nebula_@@tun_device@@'\n"
 
 echo "* If the device is a lighthouse, you may also need to add a rule to your firewall"
 echo "  to allow traffic to the @@tun_device@@ network device port. Example:"
