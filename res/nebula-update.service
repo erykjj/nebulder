@@ -6,7 +6,7 @@ ConditionPathExists=/etc/nebula/@@tun_device@@/node
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/@@tun_device@@-update.sh
+ExecStart=/usr/local/bin/nebula_@@tun_device@@-update.sh
 User=root
 StandardOutput=journal
 StandardError=journal
