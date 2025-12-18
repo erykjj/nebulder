@@ -79,8 +79,8 @@ def process_config(config, path):
                 f.write(deploy)
             with open(path + 'remove.sh', 'w', encoding='UTF-8') as f:
                 f.write(remove)
-            for service in [f"nebula_{mesh['tun_device']}.service", f"nebula_{mesh['tun_device']}-update.service", f"nebula_{mesh['tun_device']}-update.timer"]:
-                shutil.copy(root_path + service, path)
+            for unit in [f"nebula_{mesh['tun_device']}.service", f"nebula_{mesh['tun_device']}-update.service", f"nebula_{mesh['tun_device']}-update.timer"]:
+                shutil.copy(root_path + unit, path)
         elif op_sys == 'android' or op_sys == 'ios':
             shutil.copy(conf_path + mesh['tun_device'] + '_ca.qr', path + 'ca.qr')
         elif op_sys == 'macos':
@@ -241,7 +241,8 @@ def process_config(config, path):
     ips = []
     process_lighthouses()
     process_nodes()
-    # os.remove(root_path + f"nebula_{mesh['tun_device']}.service")
+    for unit in [f"nebula_{mesh['tun_device']}.service", f"nebula_{mesh['tun_device']}-update.service", f"nebula_{mesh['tun_device']}-update.timer"]:
+        os.remove(root_path + unit)
     print(f'\nCompleted successfully\n   See output in {root_path}\n')
 
 
