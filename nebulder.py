@@ -79,6 +79,8 @@ def process_config(config, path):
                 f.write(deploy)
             with open(path + 'remove.sh', 'w', encoding='UTF-8') as f:
                 f.write(remove)
+            with open(path + f"nebula_{mesh['tun_device']}-update.sh", 'w', encoding='UTF-8') as f:
+                f.write(update)
             for unit in [f"nebula_{mesh['tun_device']}.service", f"nebula_{mesh['tun_device']}-update.service", f"nebula_{mesh['tun_device']}-update.timer"]:
                 shutil.copy(root_path + unit, path)
         elif op_sys == 'android' or op_sys == 'ios':
@@ -235,6 +237,8 @@ def process_config(config, path):
         deploy = f.read().replace('@@tun_device@@', mesh['tun_device'])
     with open(res_path + 'remove.sh') as f:
         remove = f.read().replace('@@tun_device@@', mesh['tun_device'])
+    with open(res_path + 'nebula-update.sh') as f:
+        update = f.read().replace('@@tun_device@@', mesh['tun_device'])
 
     is_new = certificate_authority()
     relays = {}
