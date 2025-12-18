@@ -28,14 +28,25 @@ if [ "$(id -u)" != "0" ]; then
  exit 1
 fi
 
-echo "* Cleaning up systemd: /etc/systemd/system/nebula_@@tun_device@@.service"
+echo "* Cleaning up systemd"
+systemctl stop nebula_@@tun_device@@-update.timer
+echo "  nebula_@@tun_device@@-update.timer stopped"
+systemctl disable nebula_@@tun_device@@-update.timer
+echo "  nebula_@@tun_device@@-update.timer disabled"
+
+systemctl stop nebula_@@tun_device@@update.service
+echo "  ebula_@@tun_device@@update.service stopped"
+systemctl disable ebula_@@tun_device@@update.service
+echo "  ebula_@@tun_device@@update.service disabled"
+
 systemctl stop nebula_@@tun_device@@.service
-echo "  Service stopped"
+echo "  nebula_@@tun_device@@.service stopped"
 systemctl disable nebula_@@tun_device@@.service 
-echo "  Service disabled"
-rm /etc/systemd/system/nebula_@@tun_device@@.service
+echo "  nebula_@@tun_device@@.service disabled"
+
+rm /etc/systemd/system/nebula_@@tun_device@@*
 systemctl daemon-reload
-echo -e "  Unit file removed\n"
+echo -e "  Unit files removed\n"
 
 echo "* Removing config and keys from /etc/nebula/@@tun_device@@"
 rm -rf /etc/nebula/@@tun_device@@
