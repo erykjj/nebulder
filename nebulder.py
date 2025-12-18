@@ -79,7 +79,8 @@ def process_config(config, path):
                 f.write(deploy)
             with open(path + 'remove.sh', 'w', encoding='UTF-8') as f:
                 f.write(remove)
-            shutil.copy(root_path + f"nebula_{mesh['tun_device']}.service", path)
+            for service in [f"nebula_{mesh['tun_device']}.service", f"nebula_{mesh['tun_device']}-update.service", f"nebula_{mesh['tun_device']}-update.timer"]:
+                shutil.copy(root_path + service, path)
         elif op_sys == 'android' or op_sys == 'ios':
             shutil.copy(conf_path + mesh['tun_device'] + '_ca.qr', path + 'ca.qr')
         elif op_sys == 'macos':
@@ -207,6 +208,13 @@ def process_config(config, path):
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
             zip_package(root_path, 'node_' + node['name'])
 
+    def create_systemd_units():
+        for service in ['nebula.service', 'nebula-update.service', 'nebula-update.timer']:
+            renamed = re.sub('nebula', f"nebula_{mesh['tun_device']}", service)
+            with open(res_path + service) as f:
+                txt = f.read()
+            with open(root_path + renamed, 'w', encoding='UTF-8') as f:
+                f.write(re.sub('@@tun_device@@', mesh['tun_device'], txt, flags=re.MULTILINE))
 
     res_path = str(Path(__file__).resolve().parent) + '/res/'
     with open(res_path + 'config.yaml') as f:
@@ -221,10 +229,7 @@ def process_config(config, path):
         args['V'] = get_version(root_path)
     with open(root_path + 'version.txt', 'w') as f:
         f.write(args['V'] + '\n')
-    with open(res_path + 'nebula.service') as f:
-        txt = f.read()
-    with open(root_path + f"nebula_{mesh['tun_device']}.service", 'w', encoding='UTF-8') as f:
-        f.write(re.sub('@@tun_device@@', mesh['tun_device'], txt, flags=re.MULTILINE))
+    create_systemd_units()
 
     with open(res_path + 'deploy.sh') as f:
         deploy = f.read().replace('@@tun_device@@', mesh['tun_device'])
@@ -236,7 +241,7 @@ def process_config(config, path):
     ips = []
     process_lighthouses()
     process_nodes()
-    os.remove(root_path + f"nebula_{mesh['tun_device']}.service")
+    # os.remove(root_path + f"nebula_{mesh['tun_device']}.service")
     print(f'\nCompleted successfully\n   See output in {root_path}\n')
 
 
