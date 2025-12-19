@@ -237,7 +237,7 @@ def process_config(config, path):
         deploy = f.read().replace('@@tun_device@@', mesh['tun_device'])
     with open(res_path + 'remove.sh') as f:
         remove = f.read().replace('@@tun_device@@', mesh['tun_device'])
-    with open(res_path + 'nebula-update.sh') as f:
+    with open(res_path + 'update.sh') as f:
         update = f.read().replace('@@tun_device@@', mesh['tun_device'])
 
     is_new = certificate_authority()
