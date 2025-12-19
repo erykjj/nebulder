@@ -54,13 +54,11 @@ if [[ -f "/usr/lib/nebula/nebula_@@tun_device@@-update.sh" ]]; then
 fi
 
 echo -e "\n* Optional cleanup (may affect other Nebula networks):"
-echo "  - Check firewall rules: sudo ufw status numbered"
-echo "  - Remove binary if unused: sudo rm /usr/lib/nebula/nebula"
+echo "  - Remove binary if unused: sudo rm /usr/lib/nebula/nebula /usr/bin/nebula"
 echo "  - Remove nebula directory if empty: sudo rmdir /usr/lib/nebula"
 echo "  - Remove nebula user if no other networks: sudo userdel nebula"
-echo -e "\nNote: Binary (/usr/lib/nebula/nebula) and user (nebula) are kept"
-echo "      in case other Nebula networks are using them.\n"
+echo "  - Check firewall rules: sudo ufw status numbered"
 
-echo -e "Done. If there were no errors, you can remove this deployment package\n"
+echo -e "\nDone. If there were no errors, you can remove this deployment package\n"
 
 exit 0
