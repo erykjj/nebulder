@@ -53,14 +53,11 @@ if [[ -f "/usr/lib/nebula/nebula_@@tun_device@@-update.sh" ]]; then
   echo "  Update script removed"
 fi
 
-echo "* Removing symlinks from /usr/bin"
-rm -f /usr/bin/nebula_@@tun_device@@-update.sh 2>/dev/null || true
-
 echo -e "\n* Optional cleanup (may affect other Nebula networks):"
 echo "  - Check firewall rules: sudo ufw status numbered"
 echo "  - Remove binary if unused: sudo rm /usr/lib/nebula/nebula"
-echo "  - Remove nebula user if no other networks: sudo userdel nebula"
 echo "  - Remove nebula directory if empty: sudo rmdir /usr/lib/nebula"
+echo "  - Remove nebula user if no other networks: sudo userdel nebula"
 echo -e "\nNote: Binary (/usr/lib/nebula/nebula) and user (nebula) are kept"
 echo "      in case other Nebula networks are using them.\n"
 
