@@ -70,11 +70,6 @@ install -m 740 nebula_@@tun_device@@-update.sh /usr/lib/nebula/nebula_@@tun_devi
 chown root:nebula /usr/lib/nebula/nebula_@@tun_device@@-update.sh
 echo -e "  Update script installed\n"
 
-echo -e "* Creating symlinks in /usr/bin for convenience"
-ln -sf /usr/lib/nebula/nebula /usr/bin/nebula 2>/dev/null || true
-ln -sf /usr/lib/nebula/nebula_@@tun_device@@-update.sh /usr/bin/nebula_@@tun_device@@-update.sh 2>/dev/null || true
-echo -e "  Symlinks created\n"
-
 echo "* Putting key/config files in /etc/nebula/@@tun_device@@"
 mkdir -p /etc/nebula/@@tun_device@@
 cp -t /etc/nebula/@@tun_device@@ host.* ca.crt config.yaml version node
