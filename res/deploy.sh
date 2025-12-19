@@ -64,8 +64,18 @@ if [[ -x "nebula" ]]; then
   install -m 750 nebula /usr/lib/nebula/nebula
   chown root:nebula /usr/lib/nebula/nebula
   setcap cap_net_admin=+pe /usr/lib/nebula/nebula 2>/dev/null || true
-  echo "  Binary installed"
+  nebula_version=$(./nebula --version 2>/dev/null | grep -o "Version: [0-9.]*" | cut -d' ' -f2 || echo "unknown")
+  echo "  Binary installed (version: ${nebula_version:-unknown})"
+else
+  if [[ -x "/usr/lib/nebula/nebula" ]]; then
+    nebula_version=$(/usr/lib/nebula/nebula --version 2>/dev/null | grep -o "Version: [0-9.]*" | cut -d' ' -f2 || echo "unknown")
+    echo "  Using existing binary (version: ${nebula_version:-unknown})"
+  else
+    echo -e "  ERROR: No nebula binary found!"
+    exit 1
+  fi
 fi
+
 install -m 740 update.sh /usr/lib/nebula/@@tun_device@@-update.sh
 chown root:nebula /usr/lib/nebula/@@tun_device@@-update.sh
 echo -e "  Update script installed\n"
