@@ -29,20 +29,15 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 echo "* Cleaning up systemd"
-systemctl stop nebula_@@tun_device@@-update.timer
-echo "  nebula_@@tun_device@@-update.timer stopped"
-systemctl disable nebula_@@tun_device@@-update.timer
-echo "  nebula_@@tun_device@@-update.timer disabled"
-
-systemctl stop nebula_@@tun_device@@update.service
-echo "  ebula_@@tun_device@@update.service stopped"
-systemctl disable ebula_@@tun_device@@update.service
-echo "  ebula_@@tun_device@@update.service disabled"
-
-systemctl stop nebula_@@tun_device@@.service
-echo "  nebula_@@tun_device@@.service stopped"
-systemctl disable nebula_@@tun_device@@.service 
-echo "  nebula_@@tun_device@@.service disabled"
+systemctl stop nebula_@@tun_device@@-update.timer 2>/dev/null || true
+systemctl stop nebula_@@tun_device@@-update.service 2>/dev/null || true
+systemctl stop nebula_@@tun_device@@.service 2>/dev/null || true
+systemctl disable nebula_@@tun_device@@-update.timer 2>/dev/null || true
+systemctl disable nebula_@@tun_device@@-update.service 2>/dev/null || true
+systemctl disable nebula_@@tun_device@@.service 2>/dev/null || true
+rm -f /etc/systemd/system/nebula_@@tun_device@@.service \
+      /etc/systemd/system/nebula_@@tun_device@@-update.service \
+      /etc/systemd/system/nebula_@@tun_device@@-update.timer 2>/dev/null || true
 
 rm /etc/systemd/system/nebula_@@tun_device@@*
 systemctl daemon-reload
@@ -50,9 +45,10 @@ echo -e "  Unit files removed\n"
 
 echo "* Removing config and keys from /etc/nebula/@@tun_device@@"
 rm -rf /etc/nebula/@@tun_device@@
+rm -r /usr/lib/nebula/nebula_@@tun_device@@-update.sh
 echo -e "  Files removed\n"
 
-echo -e "You may also need to check your firewall rules and remove the nebula binary from /usr/bin\n"
+echo -e "You may also need to check your firewall rules and remove the nebula binary from /usr/lib/nebula or /usr/bin\n"
 
 echo -e "Done. If there were no errors, you can remove deployment package\n"
 
