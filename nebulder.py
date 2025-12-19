@@ -79,7 +79,7 @@ def process_config(config, path):
                 f.write(deploy)
             with open(path + 'remove.sh', 'w', encoding='UTF-8') as f:
                 f.write(remove)
-            with open(path + f"nebula_{mesh['tun_device']}-update.sh", 'w', encoding='UTF-8') as f:
+            with open(path + f"{mesh['tun_device']}-update.sh", 'w', encoding='UTF-8') as f:
                 f.write(update)
             for unit in [f"nebula_{mesh['tun_device']}.service", f"nebula_{mesh['tun_device']}-update.service", f"nebula_{mesh['tun_device']}-update.timer"]:
                 shutil.copy(root_path + unit, path)
