@@ -38,10 +38,16 @@ fi
 # for renewal/redeployment: remove previous keys/config - if any
 if [[ -d "/etc/nebula/@@tun_device@@" ]]; then
   echo "* Cleaning up previous settings"
-  systemctl stop nebula_@@tun_device@@.service
-  echo "  Service stopped"
-  systemctl disable nebula_@@tun_device@@.service > /dev/null 2>&1
-  rm /etc/systemd/system/nebula_@@tun_device@@.service
+  systemctl stop nebula_@@tun_device@@-update.timer 2>/dev/null || true
+  systemctl stop nebula_@@tun_device@@-update.service 2>/dev/null || true
+  systemctl stop nebula_@@tun_device@@.service 2>/dev/null || true
+  systemctl disable nebula_@@tun_device@@-update.timer 2>/dev/null || true
+  systemctl disable nebula_@@tun_device@@-update.service 2>/dev/null || true
+  systemctl disable nebula_@@tun_device@@.service 2>/dev/null || true
+  rm -f /etc/systemd/system/nebula_@@tun_device@@.service \
+        /etc/systemd/system/nebula_@@tun_device@@-update.service \
+        /etc/systemd/system/nebula_@@tun_device@@-update.timer 2>/dev/null || true
+  echo "  Services stopped"
   rm -rf /etc/nebula/@@tun_device@@
   echo -e "  Previous key/config files removed\n"
 else
@@ -49,14 +55,24 @@ else
   useradd -rM nebula > /dev/null 2>&1
 fi
 
+echo -e "* Installing nebula binary and update script to /usr/lib/nebula/"
+mkdir -p /usr/lib/nebula
+chmod 750 /usr/lib/nebula
+chown root:nebula /usr/lib/nebula
 if [[ -x "nebula" ]]; then
-  echo -e "* Copying nebula binary to /usr/bin"
-  cp nebula /usr/bin/nebula
+  install -m 750 nebula /usr/lib/nebula/nebula
+  chown root:nebula /usr/lib/nebula/nebula
+  setcap cap_net_admin=+pe /usr/lib/nebula/nebula 2>/dev/null || true
+  echo "  Binary installed"
 fi
-chown nebula:nebula /usr/bin/nebula
-chmod 770 /usr/bin/nebula
-setcap cap_net_admin=+pe /usr/bin/nebula
-echo -e "  Set permissions on nebula binary\n"
+install -m 740 nebula_@@tun_device@@-update.sh /usr/lib/nebula/nebula_@@tun_device@@-update.sh
+chown root:nebula /usr/lib/nebula/nebula_@@tun_device@@-update.sh
+echo -e "  Update script installed\n"
+
+echo -e "* Creating symlinks in /usr/bin for convenience"
+ln -sf /usr/lib/nebula/nebula /usr/bin/nebula 2>/dev/null || true
+ln -sf /usr/lib/nebula/nebula_@@tun_device@@-update.sh /usr/bin/nebula_@@tun_device@@-update.sh 2>/dev/null || true
+echo -e "  Symlinks created\n"
 
 echo "* Putting key/config files in /etc/nebula/@@tun_device@@"
 mkdir -p /etc/nebula/@@tun_device@@
@@ -84,7 +100,16 @@ systemctl enable nebula_@@tun_device@@-update.timer > /dev/null 2>&1
 echo "  nebula_@@tun_device@@-update.timer enabled"
 systemctl start nebula_@@tun_device@@-update.timer
 echo "  nebula_@@tun_device@@-update.timer started"
-echo -e "  Check status with 'systemctl status | grep nebula_@@tun_device@@'\n"
+echo -e "  All nebula_@@tun_device@@ units:"
+units=$(systemctl list-units --all "nebula_@@tun_device@@*" --no-pager --no-legend 2>/dev/null)
+if [[ -z "$units" ]]; then
+  echo "    No units found"
+else
+  echo "$units" | while read -r unit load active sub description; do
+    echo "    $unit: $active"
+  done
+fi
+echo ""
 
 echo "* If the device is a lighthouse, you may also need to add a rule to your firewall"
 echo "  to allow traffic to the @@tun_device@@ network device port. Example:"
