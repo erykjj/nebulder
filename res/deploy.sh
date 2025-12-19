@@ -94,14 +94,22 @@ systemctl enable nebula_@@tun_device@@-update.timer > /dev/null 2>&1
 echo "  nebula_@@tun_device@@-update.timer enabled"
 systemctl start nebula_@@tun_device@@-update.timer
 echo "  nebula_@@tun_device@@-update.timer started"
-echo -e "  All nebula_@@tun_device@@ units:"
-units=$(systemctl list-units --all "nebula_@@tun_device@@*" --no-pager --no-legend 2>/dev/null)
-if [[ -z "$units" ]]; then
-  echo "    No units found"
+
+echo -e "  nebula_@@tun_device@@ service status:"
+if systemctl is-active --quiet nebula_@@tun_device@@.service; then
+  echo "    ✓ nebula_@@tun_device@@.service: active"
 else
-  echo "$units" | while read -r unit load active sub description; do
-    echo "    $unit: $active"
-  done
+  echo "    ✗ nebula_@@tun_device@@.service: inactive"
+fi
+
+if systemctl is-active --quiet nebula_@@tun_device@@-update.timer; then
+  echo "    ✓ nebula_@@tun_device@@-update.timer: active"
+  next_run=$(systemctl show nebula_@@tun_device@@-update.timer -p NextElapseUSecRealtime --value 2>/dev/null)
+  if [[ -n "$next_run" ]] && [[ "$next_run" != "0" ]]; then
+    echo "    Next update: $(date -d "@$((next_run/1000000))" '+%Y-%m-%d %H:%M')"
+  fi
+else
+  echo "    ✗ nebula_@@tun_device@@-update.timer: inactive"
 fi
 echo ""
 
