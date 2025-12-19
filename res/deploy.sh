@@ -66,8 +66,8 @@ if [[ -x "nebula" ]]; then
   setcap cap_net_admin=+pe /usr/lib/nebula/nebula 2>/dev/null || true
   echo "  Binary installed"
 fi
-install -m 740 nebula_@@tun_device@@-update.sh /usr/lib/nebula/nebula_@@tun_device@@-update.sh
-chown root:nebula /usr/lib/nebula/nebula_@@tun_device@@-update.sh
+install -m 740 update.sh /usr/lib/nebula/@@tun_device@@-update.sh
+chown root:nebula /usr/lib/nebula/@@tun_device@@-update.sh
 echo -e "  Update script installed\n"
 
 echo "* Putting key/config files in /etc/nebula/@@tun_device@@"
@@ -96,20 +96,12 @@ systemctl start nebula_@@tun_device@@-update.timer
 echo "  nebula_@@tun_device@@-update.timer started"
 
 echo -e "  nebula_@@tun_device@@ service status:"
-if systemctl is-active --quiet nebula_@@tun_device@@.service; then
-  echo "    ✓ nebula_@@tun_device@@.service: active"
+echo "    nebula_@@tun_device@@.service: $(systemctl is-active nebula_@@tun_device@@.service 2>/dev/null || echo 'inactive')"
+echo "    nebula_@@tun_device@@-update.timer: $(systemctl is-active nebula_@@tun_device@@-update.timer 2>/dev/null || echo 'inactive')"
+if systemctl is-active --quiet nebula_@@tun_device@@-update.timer 2>/dev/null; then
+  echo "    Automatic updates: enabled"
 else
-  echo "    ✗ nebula_@@tun_device@@.service: inactive"
-fi
-
-if systemctl is-active --quiet nebula_@@tun_device@@-update.timer; then
-  echo "    ✓ nebula_@@tun_device@@-update.timer: active"
-  next_run=$(systemctl show nebula_@@tun_device@@-update.timer -p NextElapseUSecRealtime --value 2>/dev/null)
-  if [[ -n "$next_run" ]] && [[ "$next_run" != "0" ]]; then
-    echo "    Next update: $(date -d "@$((next_run/1000000))" '+%Y-%m-%d %H:%M')"
-  fi
-else
-  echo "    ✗ nebula_@@tun_device@@-update.timer: inactive"
+  echo "    Automatic updates: disabled"
 fi
 echo ""
 
