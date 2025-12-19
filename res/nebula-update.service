@@ -10,11 +10,6 @@ ExecStart=/usr/lib/nebula/@@tun_device@@-update.sh
 User=root
 StandardOutput=journal
 StandardError=journal
-
-# Exit code meanings (as defined in script):
-# 0 = Update was performed successfully
-# 1 = No update needed (versions match)
-# 2 = Error occurred
 SuccessExitStatus=0 1
 
 [Install]
