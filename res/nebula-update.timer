@@ -1,14 +1,10 @@
 [Unit]
 Description=Run updater for @@tun_device@@ every 30 minutes
-Requires=nebula_@@tun_device@@-update.service
 
 [Timer]
-# Primary: 30 minutes after last successful completion
-OnUnitActiveSec=30min
-RandomizedDelaySec=2m
-# Also run 5 minutes after boot
+OnCalendar=*:0/30
 OnBootSec=5min
-# Don't run multiple instances concurrently
+RandomizedDelaySec=7m
 Persistent=true
 
 [Install]
