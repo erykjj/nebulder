@@ -38,18 +38,9 @@ fi
 # for renewal/redeployment: remove previous keys/config - if any
 if [[ -d "/etc/nebula/@@tun_device@@" ]]; then
   echo "* Cleaning up previous settings"
-  systemctl stop nebula_@@tun_device@@-update.timer 2>/dev/null || true
-  systemctl stop nebula_@@tun_device@@-update.service 2>/dev/null || true
   systemctl stop nebula_@@tun_device@@.service 2>/dev/null || true
-  systemctl disable nebula_@@tun_device@@-update.timer 2>/dev/null || true
-  systemctl disable nebula_@@tun_device@@-update.service 2>/dev/null || true
-  systemctl disable nebula_@@tun_device@@.service 2>/dev/null || true
-  rm -f /etc/systemd/system/nebula_@@tun_device@@.service \
-        /etc/systemd/system/nebula_@@tun_device@@-update.service \
-        /etc/systemd/system/nebula_@@tun_device@@-update.timer 2>/dev/null || true
-  systemctl daemon-reload 2>/dev/null || true
-  echo "  Services stopped and disabled"
   rm -rf /etc/nebula/@@tun_device@@
+  rm /usr/lib/nebula/@@tun_device@@-update.sh
   echo -e "  Previous key/config files removed\n"
 else
   echo -e "* Creating 'nebula' user for binary and key/config file access\n"
