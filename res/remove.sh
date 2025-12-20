@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# remove.sh - Clean up script for Linux
 # MIT License:    Copyright (c) 2025 Eryk J.
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
