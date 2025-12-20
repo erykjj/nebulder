@@ -71,7 +71,7 @@ def process_config(config, path):
             print(f"   Certificate expires: {cert_date( conf_path + mesh['tun_device'] + '_ca.crt')}")
             return True
 
-    def generate_certs(path, device, op_sys):
+    def copy_files(path, device, op_sys):
         print(f"\nProcessing device '{device['name']}' ({op_sys})")
         os.makedirs(path, exist_ok=True)
         if os.path.exists(conf_path + 'update.conf'):
@@ -169,7 +169,7 @@ def process_config(config, path):
         for lighthouse in mesh['lighthouses']:
             path = root_path + 'lighthouse_' + lighthouse['name'] + '/'
             op_sys = lighthouse.get('os', 'linux')
-            generate_certs(path, lighthouse, op_sys)
+            copy_files(path, lighthouse, op_sys)
             ips.append(lighthouse['nebula_ip'])
             conf = deepcopy(base)
             add_common(lighthouse, conf)
@@ -195,7 +195,7 @@ def process_config(config, path):
         for node in mesh['nodes']:
             path = root_path  + 'node_' + node['name'] + '/'
             op_sys = node.get('os', 'linux')
-            generate_certs(path, node, op_sys)
+            copy_files(path, node, op_sys)
             conf = deepcopy(base)
             add_common(node, conf)
             conf['static_host_map'] = {}
