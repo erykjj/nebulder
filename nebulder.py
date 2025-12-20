@@ -74,6 +74,8 @@ def process_config(config, path):
     def generate_certs(path, device, op_sys):
         print(f"\nProcessing device '{device['name']}' ({op_sys})")
         os.makedirs(path, exist_ok=True)
+        if os.path.exists(conf_path + 'update.conf'):
+            shutil.copy(conf_path + 'update.conf', path)
         if op_sys == 'linux':
             with open(path + 'deploy.sh', 'w', encoding='UTF-8') as f:
                 f.write(deploy)
