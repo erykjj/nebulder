@@ -82,10 +82,10 @@ echo -e "  Update script installed\n"
 
 echo "* Putting key/config files in /etc/nebula/@@tun_device@@"
 mkdir -p /etc/nebula/@@tun_device@@
-cp -t /etc/nebula/@@tun_device@@ host.* ca.crt config.yaml version node
+cp -t /etc/nebula/@@tun_device@@ host.* ca.crt config.yaml version node update.conf
 echo "  Files copied"
 chown -R nebula:nebula /etc/nebula/@@tun_device@@
-chmod 600 /etc/nebula/@@tun_device@@/host.* /etc/nebula/@@tun_device@@/ca.crt
+chmod 600 /etc/nebula/@@tun_device@@/host.* /etc/nebula/@@tun_device@@/ca.crt /etc/nebula/@@tun_device@@/update.conf
 chmod 644 /etc/nebula/@@tun_device@@/config.yaml
 chmod 644 /etc/nebula/@@tun_device@@/version
 chmod 644 /etc/nebula/@@tun_device@@/node
