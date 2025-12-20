@@ -4,6 +4,7 @@
 
 ### Added
 
+- Auto-update functionality with own server
 - Added version file to packages
 
 ### Changed
