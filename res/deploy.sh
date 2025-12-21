@@ -35,22 +35,22 @@ if [[ ! -x "nebula" ]]; then
   fi
 fi
 
-# for renewal/redeployment: remove previous keys/config - if any
+# for renewal/redeployment: remove previous keys/config
 if [[ -d "/etc/nebula/@@tun_device@@" ]]; then
   echo "* Cleaning up previous settings"
   systemctl stop nebula_@@tun_device@@.service 2>/dev/null || true
   rm -rf /etc/nebula/@@tun_device@@
   rm /usr/lib/nebula/@@tun_device@@-update.sh
   echo -e "  Previous key/config files removed\n"
-else
-  echo -e "* Creating 'nebula' user for binary and key/config file access\n"
-  useradd -rM nebula > /dev/null 2>&1
 fi
 
 echo -e "* Installing nebula binary and update script to /usr/lib/nebula/"
 mkdir -p /usr/lib/nebula
+mkdir -p /etc/nebula/@@tun_device@@
 chmod 750 /usr/lib/nebula
+id nebula >/dev/null 2>&1 || useradd -rM nebula
 chown root:nebula /usr/lib/nebula
+
 if [[ -x "nebula" ]]; then
   install -m 750 nebula /usr/lib/nebula/nebula
   chown root:nebula /usr/lib/nebula/nebula
@@ -67,44 +67,52 @@ else
   fi
 fi
 
-install -m 740 update.sh /usr/lib/nebula/@@tun_device@@-update.sh
-chown root:nebula /usr/lib/nebula/@@tun_device@@-update.sh
-echo -e "  Update script installed\n"
+if [[ -f "update.conf" ]]; then
+  install -m 740 update.sh /usr/lib/nebula/@@tun_device@@-update.sh
+  chown root:nebula /usr/lib/nebula/@@tun_device@@-update.sh
+  cp -t /etc/nebula/@@tun_device@@ update.conf
+  chmod 600 /etc/nebula/@@tun_device@@/update.conf
+  cp nebula_@@tun_device@@-update.service nebula_@@tun_device@@-update.timer /etc/systemd/system/
+  echo -e "  Update script installed\n"
+fi
 
 echo "* Putting key/config files in /etc/nebula/@@tun_device@@"
-mkdir -p /etc/nebula/@@tun_device@@
-cp -t /etc/nebula/@@tun_device@@ host.* ca.crt config.yaml version node update.conf
+cp -t /etc/nebula/@@tun_device@@ host.* ca.crt config.yaml version node
 echo "  Files copied"
 chown -R nebula:nebula /etc/nebula/@@tun_device@@
-chmod 600 /etc/nebula/@@tun_device@@/host.* /etc/nebula/@@tun_device@@/ca.crt /etc/nebula/@@tun_device@@/update.conf
-chmod 644 /etc/nebula/@@tun_device@@/config.yaml
-chmod 644 /etc/nebula/@@tun_device@@/version
-chmod 644 /etc/nebula/@@tun_device@@/node
+chmod 600 /etc/nebula/@@tun_device@@/host.* /etc/nebula/@@tun_device@@/ca.crt
+chmod 644 /etc/nebula/@@tun_device@@/config.yaml /etc/nebula/@@tun_device@@/version /etc/nebula/@@tun_device@@/node
 echo -e "  Permissions set\n"
 
 echo "* Setting up systemd unit files in /etc/systemd/system/"
-cp nebula_@@tun_device@@.service nebula_@@tun_device@@-update.service nebula_@@tun_device@@-update.timer /etc/systemd/system/
+cp nebula_@@tun_device@@.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable nebula_@@tun_device@@.service > /dev/null 2>&1
 echo "  nebula_@@tun_device@@.service enabled"
 systemctl start nebula_@@tun_device@@.service
 echo "  nebula_@@tun_device@@.service started"
-systemctl enable nebula_@@tun_device@@-update.service > /dev/null 2>&1
-echo "  nebula_@@tun_device@@-update.service enabled"
-systemctl enable nebula_@@tun_device@@-update.timer > /dev/null 2>&1
-echo "  nebula_@@tun_device@@-update.timer enabled"
-systemctl start nebula_@@tun_device@@-update.timer
-echo "  nebula_@@tun_device@@-update.timer started"
+
+if [[ -f "update.conf" ]]; then
+  systemctl enable nebula_@@tun_device@@-update.service > /dev/null 2>&1
+  echo "  nebula_@@tun_device@@-update.service enabled"
+  systemctl enable nebula_@@tun_device@@-update.timer > /dev/null 2>&1
+  echo "  nebula_@@tun_device@@-update.timer enabled"
+  systemctl start nebula_@@tun_device@@-update.timer
+  echo "  nebula_@@tun_device@@-update.timer started"
+fi
 
 echo -e "  nebula_@@tun_device@@ service status:"
 echo "    nebula_@@tun_device@@.service: $(systemctl is-active nebula_@@tun_device@@.service 2>/dev/null || echo 'inactive')"
-echo "    nebula_@@tun_device@@-update.timer: $(systemctl is-active nebula_@@tun_device@@-update.timer 2>/dev/null || echo 'inactive')"
-if systemctl is-active --quiet nebula_@@tun_device@@-update.timer 2>/dev/null; then
-  echo "    Automatic updates: enabled"
-else
-  echo "    Automatic updates: disabled"
+
+if [[ -f "update.conf" ]]; then
+  echo "    nebula_@@tun_device@@-update.timer: $(systemctl is-active nebula_@@tun_device@@-update.timer 2>/dev/null || echo 'inactive')"
+  if systemctl is-active --quiet nebula_@@tun_device@@-update.timer 2>/dev/null; then
+    echo "    Automatic updates: enabled"
+  else
+    echo "    Automatic updates: disabled"
+  fi
+  echo ""
 fi
-echo ""
 
 echo "* If the device is a lighthouse, you may also need to add a rule to your firewall"
 echo "  to allow traffic to the @@tun_device@@ network device port. Example:"
