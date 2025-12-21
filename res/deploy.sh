@@ -45,11 +45,11 @@ if [[ -d "/etc/nebula/@@tun_device@@" ]]; then
 fi
 
 echo -e "* Installing nebula binary and update script to /usr/lib/nebula/"
-mkdir -p /usr/lib/nebula
-mkdir -p /etc/nebula/@@tun_device@@
-chmod 750 /usr/lib/nebula
 id nebula >/dev/null 2>&1 || useradd -rM nebula
+mkdir -p /usr/lib/nebula
 chown root:nebula /usr/lib/nebula
+chmod 750 /usr/lib/nebula
+mkdir -p /etc/nebula/@@tun_device@@
 
 if [[ -x "nebula" ]]; then
   install -m 750 nebula /usr/lib/nebula/nebula
@@ -88,28 +88,21 @@ echo "* Setting up systemd unit files in /etc/systemd/system/"
 cp nebula_@@tun_device@@.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable nebula_@@tun_device@@.service > /dev/null 2>&1
-echo "  nebula_@@tun_device@@.service enabled"
 systemctl start nebula_@@tun_device@@.service
-echo "  nebula_@@tun_device@@.service started"
 
 if [[ -f "update.conf" ]]; then
   systemctl enable nebula_@@tun_device@@-update.service > /dev/null 2>&1
-  echo "  nebula_@@tun_device@@-update.service enabled"
   systemctl enable nebula_@@tun_device@@-update.timer > /dev/null 2>&1
-  echo "  nebula_@@tun_device@@-update.timer enabled"
   systemctl start nebula_@@tun_device@@-update.timer
-  echo "  nebula_@@tun_device@@-update.timer started"
 fi
 
-echo -e "  nebula_@@tun_device@@ service status:"
-echo "    nebula_@@tun_device@@.service: $(systemctl is-active nebula_@@tun_device@@.service 2>/dev/null || echo 'inactive')"
-
+echo "  nebula_@@tun_device@@.service: $(systemctl is-active nebula_@@tun_device@@.service 2>/dev/null || echo 'inactive')"
 if [[ -f "update.conf" ]]; then
-  echo "    nebula_@@tun_device@@-update.timer: $(systemctl is-active nebula_@@tun_device@@-update.timer 2>/dev/null || echo 'inactive')"
+  echo "  nebula_@@tun_device@@-update.timer: $(systemctl is-active nebula_@@tun_device@@-update.timer 2>/dev/null || echo 'inactive')"
   if systemctl is-active --quiet nebula_@@tun_device@@-update.timer 2>/dev/null; then
-    echo "    Automatic updates: enabled"
+    echo "  nebula_@@tun_device@@-update.service: enabled"
   else
-    echo "    Automatic updates: disabled"
+    echo "  nebula_@@tun_device@@-update.service: disabled"
   fi
   echo ""
 fi
