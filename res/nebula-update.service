@@ -1,6 +1,7 @@
 [Unit]
 Description=Auto-update for @@tun_device@@
 After=nebula_@@tun_device@@.service network-online.target
+After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/etc/nebula/@@tun_device@@/node
 
