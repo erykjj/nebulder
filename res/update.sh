@@ -334,9 +334,12 @@ report_result() {
     local old_clean="${old_version#v}"
     local new_clean="${current_version#v}"
 
+    if [[ "$result_code" -eq 1 ]]; then
+        return 0
+    fi
+
     case $result_code in
         0) result_text="updated" ;;
-        1) result_text="no_update" ;;
         2) result_text="error" ;;
     esac
 
@@ -346,9 +349,9 @@ report_result() {
 {
   "node": "$node_name",
   "result": "${result_text}",
-  "old_version": "$old_clean",
-  "new_version": "$new_clean",
-  "nebula_version": "$nebula_version",
+  "previous": "$old_clean",
+  "current": "$new_clean",
+  "nebula": "$nebula_version",
   "timestamp": "$(date -Iseconds)"
 }
 EOF
@@ -359,14 +362,19 @@ EOF
 
     if [[ -n "${NTFY_CHANNEL:-}" ]]; then
         local channel_clean=$(echo "${NTFY_CHANNEL}" | tr -d '[:space:]')
-        
+
         if [[ -n "$channel_clean" ]]; then
             local ntfy_url="https://ntfy.sh/${channel_clean}"
-            
-            local message="Updated: ${old_clean} --> ${new_clean}"$'\n'"Nebula version: ${nebula_version}"
-            echo $ntfy_url
-            echo $message
-            echo "$message" | curl -H "Title: ${node_name} @ @@tun_device@@" --data-binary @- "${ntfy_url}" >/dev/null 2>&1
+            local message=""
+
+            case $result_code in
+                0) message="Update from ${old_clean} --> ${new_clean}"$'\n'"Nebula version: ${nebula_version}" ;;
+                2) message="ERROR on update from ${old_clean} --> ${new_clean}"$'\n'"Nebula version: ${nebula_version}" ;;
+            esac
+
+            echo "$message" | curl -H "Title: ${node_name} @ @@tun_device@@" \
+                                   --data-binary @- \
+                                   "${ntfy_url}" >/dev/null 2>&1
         fi
     fi
 }
