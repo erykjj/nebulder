@@ -363,13 +363,10 @@ EOF
         if [[ -n "$channel_clean" ]]; then
             local ntfy_url="https://ntfy.sh/${channel_clean}"
             
-            local message="Result: ${result_text}"$'\n'"Old: ${old_clean}"$'\n'"New: ${new_clean}"$'\n'"Binary: ${nebula_version}"
+            local message="Updated: ${old_clean} --> ${new_clean}"$'\n'"Nebula version: ${nebula_version}"
             echo $ntfy_url
             echo $message
-            echo "$message" | curl -H "Title: ${node_name} @ @@tun_device@@" \
-                                   -H "Tags: nebulder" \
-                                   --data-binary @- \
-                                   "${ntfy_url}" >/dev/null 2>&1
+            echo "$message" | curl -H "Title: ${node_name} @ @@tun_device@@" --data-binary @- "${ntfy_url}" >/dev/null 2>&1
         fi
     fi
 }
