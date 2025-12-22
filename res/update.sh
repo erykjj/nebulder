@@ -1,0 +1,462 @@
+#!/bin/bash
+# update.sh - Nebula auto-update script
+# MIT License:    Copyright (c) 2025 Eryk J.
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+set -euo pipefail
+
+# Configuration
+LOCAL_VERSION_FILE="/etc/nebula/@@tun_device@@/version"
+LOCAL_NODE_FILE="/etc/nebula/@@tun_device@@/node"
+BACKUP_DIR="/var/backups/@@tun_device@@"
+NEBULA_BINARY="/usr/lib/nebula/nebula"
+NEBULA_CONFIG_DIR="/etc/nebula/@@tun_device@@"
+SERVICE_NAME="nebula_@@tun_device@@.service"
+UPDATE_SCRIPT="/usr/lib/nebula/@@tun_device@@-update.sh"
+
+CONFIG_FILE="/etc/nebula/@@tun_device@@/update.conf"
+if [[ ! -f "${CONFIG_FILE}" ]]; then
+    echo "ERROR: Configuration file not found: ${CONFIG_FILE}" >&2
+    exit 1
+fi
+source "${CONFIG_FILE}"
+if [[ -z "${UPDATE_SERVER:-}" || -z "${AUTH_USER:-}" || -z "${AUTH_PASS:-}" ]]; then
+    echo "ERROR: Missing required configuration in ${CONFIG_FILE}" >&2
+    exit 1
+fi
+NTFY_CHANNEL="${NTFY_CHANNEL:-}"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+log_success() {
+    log "SUCCESS: $*"
+}
+
+log_warning() {
+    log "WARNING: $*"
+}
+
+log_error() {
+    log "ERROR: $*"
+}
+
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        log_error "This script must be run as root"
+        exit 2
+    fi
+}
+
+create_backup() {
+    rm -rf "${BACKUP_DIR}"
+    mkdir -p "${BACKUP_DIR}/config"
+    mkdir -p "${BACKUP_DIR}/etc/systemd/system"
+    mkdir -p "${BACKUP_DIR}/usr/lib/nebula"
+
+    for unit in nebula_@@tun_device@@.service nebula_@@tun_device@@-update.service nebula_@@tun_device@@-update.timer; do
+        if [[ -f "/etc/systemd/system/${unit}" ]]; then
+            cp -a "/etc/systemd/system/${unit}" "${BACKUP_DIR}/etc/systemd/system/" 2>/dev/null || true
+        fi
+    done
+
+    if [[ -f "${UPDATE_SCRIPT}" ]]; then
+        cp -a "${UPDATE_SCRIPT}" "${BACKUP_DIR}/usr/lib/nebula/" 2>/dev/null || true
+    fi
+
+    if [[ -f "${NEBULA_BINARY}" ]]; then
+        cp -a "${NEBULA_BINARY}" "${BACKUP_DIR}/usr/lib/nebula/" 2>/dev/null || true
+    else
+        log_warning "Nebula binary not found: ${NEBULA_BINARY}"
+    fi
+
+    if [[ -d "${NEBULA_CONFIG_DIR}" ]]; then
+        cp -a "${NEBULA_CONFIG_DIR}/"* "${BACKUP_DIR}/config/" 2>/dev/null || true
+    else
+        log_warning "Config directory not found: ${NEBULA_CONFIG_DIR}"
+    fi
+
+    log "Backup created at: ${BACKUP_DIR}"
+}
+
+restore_backup() {
+    log "Restoring from backup..."
+
+    if [[ ! -d "${BACKUP_DIR}" ]]; then
+        log_error "Backup directory not found: ${BACKUP_DIR}"
+        return 1
+    fi
+
+    log "Stopping Nebula service..."
+    sudo systemctl stop nebula_@@tun_device@@.service 2>/dev/null || true
+    sudo systemctl stop nebula_@@tun_device@@-update.timer 2>/dev/null || true
+
+    if [[ -d "${BACKUP_DIR}/etc/systemd/system" ]]; then
+        for unit in "${BACKUP_DIR}/etc/systemd/system"/*; do
+            if [[ -f "$unit" ]]; then
+                unit_name=$(basename "$unit")
+                cp -a "$unit" "/etc/systemd/system/"
+                log "Restored systemd unit: ${unit_name}"
+            fi
+        done
+        systemctl daemon-reload 2>/dev/null || true
+    fi
+
+    if [[ -f "${BACKUP_DIR}/usr/lib/nebula/@@tun_device@@-update.sh" ]]; then
+        cp -a "${BACKUP_DIR}/usr/lib/nebula/@@tun_device@@-update.sh" "${UPDATE_SCRIPT}"
+        chmod 740 "${UPDATE_SCRIPT}"
+        chown root:nebula "${UPDATE_SCRIPT}"
+        log "Restored update script"
+    fi
+
+    if [[ -f "${BACKUP_DIR}/usr/lib/nebula/nebula" ]]; then
+        cp -a "${BACKUP_DIR}/usr/lib/nebula/nebula" "${NEBULA_BINARY}"
+        chown nebula:nebula "${NEBULA_BINARY}" 2>/dev/null || true
+        chmod 750 "${NEBULA_BINARY}" 2>/dev/null || true
+        setcap cap_net_admin=+pe "${NEBULA_BINARY}" 2>/dev/null || true
+        log "Restored nebula binary"
+    fi
+
+    if [[ -d "${BACKUP_DIR}/config" ]]; then
+        rm -rf "${NEBULA_CONFIG_DIR}"
+        mkdir -p "${NEBULA_CONFIG_DIR}"
+        cp -a "${BACKUP_DIR}/config/"* "${NEBULA_CONFIG_DIR}/" 2>/dev/null || true
+        chown -R nebula:nebula "${NEBULA_CONFIG_DIR}" 2>/dev/null || true
+        log "Restored config directory"
+    fi
+
+    log "Starting Nebula service..."
+    sudo systemctl start nebula_@@tun_device@@.service 2>/dev/null || true
+    sudo systemctl start nebula_@@tun_device@@-update.timer 2>/dev/null || true
+
+    log "Restore completed"
+}
+
+get_local_version() {
+    if [[ -f "${LOCAL_VERSION_FILE}" ]]; then
+        cat "${LOCAL_VERSION_FILE}" | tr -d '[:space:]'
+    else
+        echo "0.0.0"
+    fi
+}
+
+get_node_name() {
+    if [[ -f "${LOCAL_NODE_FILE}" ]]; then
+        cat "${LOCAL_NODE_FILE}" | tr -d '[:space:]'
+    else
+        hostname | cut -d'.' -f1 | tr -d '[:space:]'
+    fi
+}
+
+get_remote_version() {
+    local server="$1"
+    local remote_version
+    local curl_output
+    local curl_exit_code
+
+    curl_output=$(curl -s -u "${AUTH_USER}:${AUTH_PASS}" --max-time 10 "${server}/version.txt" 2>/dev/null)
+    curl_exit_code=$?
+
+    if [[ $curl_exit_code -ne 0 ]]; then
+        log_error "Network error: Could not fetch remote version from ${server}/version.txt (curl exit: $curl_exit_code)" >&2
+        echo "ERROR_FETCH"
+        return 1
+    fi
+
+    remote_version=$(echo "$curl_output" | tr -d '[:space:]')
+
+    if [[ -z "${remote_version}" ]]; then
+        log_error "Empty response from server at ${server}/version.txt" >&2
+        echo "ERROR_EMPTY"
+        return 1
+    fi
+
+    echo "${remote_version}"
+}
+
+get_nebula_version() {
+    if [[ -f "$NEBULA_BINARY" ]]; then
+        "$NEBULA_BINARY" --version 2>/dev/null | \
+            grep -o "Version: [0-9.]*" | cut -d' ' -f2 || echo "unknown"
+    else
+        echo "not_found"
+    fi
+}
+
+check_update() {
+    local local_version
+    local remote_version
+
+    local_version=$(get_local_version)
+    log "Local version: ${local_version}"
+
+    remote_version=$(get_remote_version "${UPDATE_SERVER}")
+
+    if [[ "${remote_version}" == ERROR_* ]]; then
+        return 2
+    fi
+
+    log "Remote version: ${remote_version}"
+
+    if [[ "${remote_version}" != "${local_version}" ]]; then
+        log "Update available: ${local_version} -> ${remote_version}"
+        return 0
+    else
+        log "No update needed"
+        return 1
+    fi
+}
+
+download_package() {
+    local remote_version="$1"
+    local node_name
+    local package_name
+    local package_url
+
+    node_name=$(get_node_name)
+    if [[ -z "${node_name}" ]]; then
+        log_error "Cannot determine node name" >&2
+        return 1
+    fi
+
+    package_name="${node_name}_${remote_version}.zip"
+    package_url="${UPDATE_SERVER}/${package_name}"
+
+    TEMP_DIR=$(mktemp -d -t nebula-update-XXXXXX)
+
+    if ! curl -s -u "${AUTH_USER}:${AUTH_PASS}" --connect-timeout 30 \
+        -o "${TEMP_DIR}/package.zip" "${package_url}"; then
+        log_error "Failed to download package from: ${package_url}" >&2
+        rm -rf "${TEMP_DIR}"
+        return 1
+    fi
+
+    if ! unzip -q -d "${TEMP_DIR}" "${TEMP_DIR}/package.zip"; then
+        log_error "Failed to extract package" >&2
+        rm -rf "${TEMP_DIR}"
+        return 1
+    fi
+
+    log "Package downloaded and extracted to: ${TEMP_DIR}" >&2
+    echo "${TEMP_DIR}"
+}
+
+apply_update() {
+    local temp_dir="$1"
+
+    temp_dir=$(echo "${temp_dir}" | tail -1 | tr -d '[:space:]')
+
+    cd "${temp_dir}" || {
+        log_error "Cannot cd to ${temp_dir}"
+        return 1
+    }
+
+    if [[ ! -f "./deploy.sh" ]]; then
+        log_error "deploy.sh not found in ${temp_dir}"
+        return 1
+    fi
+
+    chmod +x ./deploy.sh
+
+    log "Running deploy.sh..."
+    if ! ./deploy.sh; then
+        log_error "deploy.sh failed with exit code $?"
+        return 1
+    fi
+
+    log "Update applied successfully"
+}
+
+verify_update() {
+    local expected_version="$1"
+    local new_local_version
+    local remote_version_again
+
+    new_local_version=$(get_local_version)
+    log "Local version after update: ${new_local_version}"
+
+    remote_version_again=$(get_remote_version "${UPDATE_SERVER}")
+    if [[ "${remote_version_again}" == ERROR_* ]]; then
+        log_error "Could not verify remote version after update"
+        return 1
+    fi
+
+    if [[ "${new_local_version}" == "${expected_version}" ]] && \
+       [[ "${remote_version_again}" == "${expected_version}" ]]; then
+        log_success "Version verification passed"
+        return 0
+    else
+        log_error "Version verification failed"
+        log_error "Expected: ${expected_version}"
+        log_error "Local: ${new_local_version}"
+        log_error "Remote: ${remote_version_again}"
+        return 1
+    fi
+}
+
+check_service() {
+    log "Checking nebula service status..."
+    if systemctl is-active --quiet "${SERVICE_NAME}"; then
+        log_success "Service ${SERVICE_NAME} is running"
+        return 0
+    else
+        log_error "Service ${SERVICE_NAME} is not running"
+        systemctl status "${SERVICE_NAME}" --no-pager || true
+        return 1
+    fi
+}
+
+report_result() {
+    local result_code="$1"
+    local old_version="${2:-$(get_local_version)}"
+    local result_text=""
+    local node_name=$(get_node_name)
+    local nebula_version=$(get_nebula_version)
+    local current_version=$(get_local_version)
+    local old_clean="${old_version#v}"
+    local new_clean="${current_version#v}"
+
+    case $result_code in
+        0) result_text="updated" ;;
+        1) result_text="no_update" ;;
+        2) result_text="error" ;;
+    esac
+
+    local status_dir="/var/run/nebula"
+    mkdir -p "$status_dir"
+    cat > "${status_dir}/@@tun_device@@-update.status" << EOF
+{
+  "node": "$node_name",
+  "result": "${result_text}",
+  "old_version": "$old_clean",
+  "new_version": "$new_clean",
+  "nebula_version": "$nebula_version",
+  "timestamp": "$(date -Iseconds)"
+}
+EOF
+
+    chown nebula:users "${status_dir}" "${status_dir}/@@tun_device@@-update.status" 2>/dev/null || true
+    chmod 755 "$status_dir" 2>/dev/null || true
+    chmod 644 "${status_dir}/@@tun_device@@-update.status" 2>/dev/null || true
+
+    if [[ -n "${NTFY_CHANNEL:-}" ]]; then
+        local channel_clean=$(echo "${NTFY_CHANNEL}" | tr -d '[:space:]')
+        
+        if [[ -n "$channel_clean" ]]; then
+            local ntfy_url="https://ntfy.sh/${channel_clean}"
+            
+            local message="Result: ${result_text}"$'\n'"Old: ${old_clean}"$'\n'"New: ${new_clean}"$'\n'"Binary: ${nebula_version}"
+            echo $ntfy_url
+            echo $message
+            echo "$message" | curl -H "Title: ${node_name} @ @@tun_device@@" \
+                                   -H "Tags: nebulder" \
+                                   --data-binary @- \
+                                   "${ntfy_url}" >/dev/null 2>&1
+        fi
+    fi
+}
+
+perform_update() {
+    local local_version
+    local remote_version
+    local temp_dir
+
+    local_version=$(get_local_version)
+    remote_version=$(get_remote_version "${UPDATE_SERVER}")
+
+    if [[ "${remote_version}" == ERROR_* ]]; then
+        log_error "Cannot proceed with update due to version fetch error"
+        return 1
+    fi
+
+    create_backup
+
+    temp_dir=$(download_package "${remote_version}")
+
+    if [[ $? -ne 0 ]] || [[ ! -d "${temp_dir}" ]]; then
+        log_error "Download failed, rolling back..."
+        restore_backup
+        return 1
+    fi
+
+    temp_dir=$(echo "${temp_dir}" | tr -d '[:space:]')
+    log "Using temp directory: ${temp_dir}"
+
+    if ! apply_update "${temp_dir}"; then
+        log_error "Update failed, rolling back..."
+        restore_backup
+        rm -rf "${temp_dir}"
+        return 1
+    fi
+
+    if ! verify_update "${remote_version}"; then
+        log_error "Verification failed, rolling back..."
+        restore_backup
+        rm -rf "${temp_dir}"
+        return 1
+    fi
+
+    if ! check_service; then
+        log_warning "Service check failed, but update applied successfully"
+    fi
+
+    rm -rf "${temp_dir}"
+    rm -rf "${BACKUP_DIR}"
+    log "Backup deleted"
+
+    log_success "Update completed successfully to version ${remote_version}"
+    return 0
+}
+
+main() {
+    check_root
+
+    local old_version=$(get_local_version)
+    check_update
+    check_exit=$?
+
+    case $check_exit in
+        0)
+            log "Starting update process..."
+            if perform_update; then
+                log_success "Update process completed successfully"
+                report_result 0 "$old_version"
+                exit 0
+            else
+                log_error "Update process failed"
+                report_result 2 "$old_version"
+                exit 2
+            fi
+            ;;
+        1)
+            log "No update required"
+            report_result 1 "$old_version"
+            exit 1
+            ;;
+        *)
+            log_error "Failed to check for updates"
+            report_result 2 "$old_version"
+            exit 2
+            ;;
+    esac
+}
+
+main "$@"
