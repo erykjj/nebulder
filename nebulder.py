@@ -77,12 +77,9 @@ def process_config(config, path):
         if os.path.exists(conf_path + 'update.conf'):
             shutil.copy(conf_path + 'update.conf', path)
         if op_sys == 'linux':
-            with open(path + 'deploy.sh', 'w', encoding='UTF-8') as f:
-                f.write(deploy)
-            with open(path + 'remove.sh', 'w', encoding='UTF-8') as f:
-                f.write(remove)
-            with open(path + 'update.sh', 'w', encoding='UTF-8') as f:
-                f.write(update)
+            for script in ['deploy.sh', 'remove.sh', 'update.sh']:
+                with open(path + script, 'w', encoding='UTF-8') as f:
+                    f.write(scripts[script])
             for unit in [f"nebula_{mesh['tun_device']}.service", f"nebula_{mesh['tun_device']}-update.service", f"nebula_{mesh['tun_device']}-update.timer"]:
                 shutil.copy(root_path + unit, path)
         elif op_sys == 'android' or op_sys == 'ios':
@@ -90,8 +87,9 @@ def process_config(config, path):
         elif op_sys == 'macos':
             pass
         else: # windows
-            shutil.copy(res_path + 'deploy.bat', path)
-            shutil.copy(res_path + 'remove.bat', path)
+            for script in ['deploy.bat', 'deploy.ps1', 'update.ps1']:
+                with open(path + script, 'w', encoding='UTF-8') as f:
+                    f.write(scripts[script])
         shutil.copy(conf_path + mesh['tun_device'] + '_ca.crt', path + 'ca.crt')
         if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
             if is_new:
@@ -235,12 +233,10 @@ def process_config(config, path):
         f.write(args['V'] + '\n')
     create_systemd_units()
 
-    with open(res_path + 'deploy.sh') as f:
-        deploy = f.read().replace('@@tun_device@@', mesh['tun_device'])
-    with open(res_path + 'remove.sh') as f:
-        remove = f.read().replace('@@tun_device@@', mesh['tun_device'])
-    with open(res_path + 'update.sh') as f:
-        update = f.read().replace('@@tun_device@@', mesh['tun_device'])
+    scripts = {}
+    for script in ['deploy.sh', 'remove.sh', 'update.sh', 'deploy.bat', 'deploy.ps1', 'update.ps1']:
+        with open(res_path + script) as f:
+            scripts[script] = f.read().replace('@@tun_device@@', mesh['tun_device'])
 
     is_new = certificate_authority()
     relays = {}
