@@ -331,8 +331,6 @@ report_result() {
     local node_name=$(get_node_name)
     local nebula_version=$(get_nebula_version)
     local current_version=$(get_local_version)
-    local old_clean="${old_version#v}"
-    local new_clean="${current_version#v}"
 
     if [[ "$result_code" -eq 1 ]]; then
         return 0
@@ -349,8 +347,8 @@ report_result() {
 {
   "node": "$node_name",
   "result": "${result_text}",
-  "previous": "$old_clean",
-  "current": "$new_clean",
+  "previous": "$old_version",
+  "current": "$current_version",
   "nebula": "$nebula_version",
   "timestamp": "$(date -Iseconds)"
 }
@@ -368,13 +366,18 @@ EOF
             local message=""
 
             case $result_code in
-                0) message="Update from ${old_clean} --> ${new_clean}"$'\n'"Nebula version: ${nebula_version}" ;;
-                2) message="ERROR on update from ${old_clean} --> ${new_clean}"$'\n'"Nebula version: ${nebula_version}" ;;
+                0) echo "Updated from ${old_version} --> ${current_version}"$'\n'"Nebula version: ${nebula_version}" | curl \
+                    -H "Title: ${node_name} @ @@tun_device@@" \
+                    -H "Tags:white_check_mark" \
+                    -H "Priority:3" \
+                    --data-binary @- "${ntfy_url}" >/dev/null 2>&1 ;;
+                2) echo "ERROR on update from ${old_version} --> ${current_version}"$'\n'"Nebula version: ${nebula_version}" | curl \
+                    -H "Title: ${node_name} @ @@tun_device@@" \
+                    -H "Tags:warning" \
+                    -H "Priority:4" \
+                    --data-binary @- "${ntfy_url}" >/dev/null 2>&1 ;;
             esac
 
-            echo "$message" | curl -H "Title: ${node_name} @ @@tun_device@@" \
-                                   --data-binary @- \
-                                   "${ntfy_url}" >/dev/null 2>&1
         fi
     fi
 }
