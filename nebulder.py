@@ -87,7 +87,7 @@ def process_config(config, path):
         elif op_sys == 'macos':
             pass
         else: # windows
-            for script in ['deploy.bat', 'deploy.ps1', 'update.ps1']:
+            for script in ['update.bat', 'deploy.ps1', 'update.ps1', 'remove.ps1']:
                 with open(path + script, 'w', encoding='UTF-8') as f:
                     f.write(scripts[script])
         shutil.copy(conf_path + mesh['tun_device'] + '_ca.crt', path + 'ca.crt')
@@ -144,9 +144,13 @@ def process_config(config, path):
                         processed.append(inbound)
             return processed
 
-        conf['pki'] = { 'ca': f"/etc/nebula/{mesh['tun_device']}/ca.crt",
-                        'cert': f"/etc/nebula/{mesh['tun_device']}/host.crt",
-                        'key': f"/etc/nebula/{mesh['tun_device']}/host.key" }
+        if node.get('os') == 'windows':
+            p = r'C:\\nebula\\' + mesh['tun_device'] + r'\\'
+        else:
+            p = f"/etc/nebula/{mesh['tun_device']}/"
+        conf['pki'] = { 'ca': p + 'ca.crt',
+                        'cert': p + 'host.crt',
+                        'key': p + 'host.key' }
         conf['tun'] = { 'dev': mesh['tun_device'] }
         if 'preferred_ranges' in node.keys():
             conf['preferred_ranges'] = node['preferred_ranges']
@@ -234,7 +238,7 @@ def process_config(config, path):
     create_systemd_units()
 
     scripts = {}
-    for script in ['deploy.sh', 'remove.sh', 'update.sh', 'deploy.bat', 'deploy.ps1', 'update.ps1']:
+    for script in ['deploy.sh', 'remove.sh', 'update.sh', 'update.bat', 'deploy.ps1', 'update.ps1', 'remove.ps1']:
         with open(res_path + script) as f:
             scripts[script] = f.read().replace('@@tun_device@@', mesh['tun_device'])
 
