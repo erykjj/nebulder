@@ -309,100 +309,35 @@ check_service() {
         return 1
     fi
 }
-
-report_result() {
-    local result_code="$1"
-    local old_version="${2:-$(get_local_version)}"
-    local result_text=""
-    local node_name=$(get_node_name)
-    local nebula_version=$(get_nebula_version)
-    local current_version=$(get_local_version)
-
-    if [[ "$result_code" -eq 1 ]]; then
-        return 0
-    fi
-
-    case $result_code in
-        0) result_text="updated" ;;
-        2) result_text="error" ;;
-    esac
-
-    local status_dir="/var/run/nebula"
-    mkdir -p "$status_dir"
-    cat > "${status_dir}/@@tun_device@@-update.status" << EOF
-{
-  "node": "$node_name",
-  "result": "${result_text}",
-  "previous": "$old_version",
-  "current": "$current_version",
-  "nebula": "$nebula_version",
-  "timestamp": "$(date -Iseconds)"
-}
-EOF
-
-    chown nebula:users "${status_dir}" "${status_dir}/@@tun_device@@-update.status" 2>/dev/null || true
-    chmod 755 "$status_dir" 2>/dev/null || true
-    chmod 644 "${status_dir}/@@tun_device@@-update.status" 2>/dev/null || true
-
-    if [[ -n "${NTFY_CHANNEL:-}" ]]; then
-        local channel_clean=$(echo "${NTFY_CHANNEL}" | tr -d '[:space:]')
-
-        if [[ -n "$channel_clean" ]]; then
-            local ntfy_url="https://ntfy.sh/${channel_clean}"
-            local message=""
-
-            case $result_code in
-                0) echo "Updated from ${old_version} --> ${current_version}"$'\n'"Nebula version: ${nebula_version}" | curl \
-                    -H "Title: ${node_name} @ @@tun_device@@" \
-                    -H "Tags:white_check_mark" \
-                    -H "Priority:3" \
-                    --data-binary @- "${ntfy_url}" >/dev/null 2>&1 ;;
-                2) echo "ERROR on update from ${old_version} --> ${current_version}"$'\n'"Nebula version: ${nebula_version}" | curl \
-                    -H "Title: ${node_name} @ @@tun_device@@" \
-                    -H "Tags:warning" \
-                    -H "Priority:4" \
-                    --data-binary @- "${ntfy_url}" >/dev/null 2>&1 ;;
-            esac
-
-        fi
-    fi
-}
-
 perform_update() {
+    local remote_version="$1"
     local local_version
-    local remote_version
     local temp_dir
 
     local_version=$(get_local_version)
-    remote_version=$(get_remote_version "${UPDATE_SERVER}")
 
-    if [[ "${remote_version}" == ERROR_* ]]; then
-        log_error "Cannot proceed with update due to version fetch error"
-        return 1
-    fi
-
-    create_backup
-
+    log "Downloading update package for version: ${remote_version}"
     temp_dir=$(download_package "${remote_version}")
 
     if [[ $? -ne 0 ]] || [[ ! -d "${temp_dir}" ]]; then
-        log_error "Download failed, rolling back..."
-        restore_backup
+        log_error "Download failed, no backup needed"
         return 1
     fi
 
     temp_dir=$(echo "${temp_dir}" | tr -d '[:space:]')
-    log "Using temp directory: ${temp_dir}"
+    log "Package downloaded to: ${temp_dir}"
+
+    create_backup
 
     if ! apply_update "${temp_dir}"; then
-        log_error "Update failed, rolling back..."
+        log_error "Update failed, restoring backup..."
         restore_backup
         rm -rf "${temp_dir}"
         return 1
     fi
 
     if ! verify_update "${remote_version}"; then
-        log_error "Verification failed, rolling back..."
+        log_error "Verification failed, restoring backup..."
         restore_backup
         rm -rf "${temp_dir}"
         return 1
@@ -414,43 +349,97 @@ perform_update() {
 
     rm -rf "${temp_dir}"
     rm -rf "${BACKUP_DIR}"
-    log "Backup deleted"
+    log "Cleanup completed"
 
     log_success "Update completed successfully to version ${remote_version}"
     return 0
+}
+
+report_result() {
+    local result_code="$1"
+    local old_version="${2:-$(get_local_version)}"
+    local current_version="${3:-$(get_local_version)}"
+    local result_text=""
+    local node_name=$(get_node_name)
+    local nebula_version=$(get_nebula_version)
+
+    if [[ "$result_code" -eq 1 ]]; then
+        return 0
+    fi
+
+    case $result_code in
+        0) result_text="updated" ;;
+        2) result_text="error" ;;
+    esac
+
+    local status_dir="/var/run/nebula/@@tun_device@@"
+    mkdir -p "$status_dir"
+
+    cat > "${status_dir}/update-status.json" << EOF
+    {
+    "node": "$node_name",
+    "result": "${result_text}",
+    "previous": "$old_version",
+    "current": "$current_version",
+    "nebula": "$nebula_version",
+    "timestamp": "$(date -Iseconds)"
+    }
+    EOF
+
+    chown nebula:users "${status_dir}" "${status_dir}/update-status.json" 2>/dev/null || true
+    chmod 755 "$status_dir" 2>/dev/null || true
+    chmod 644 "${status_dir}/update-status.json" 2>/dev/null || true
+
+    if [[ -n "${NTFY_CHANNEL:-}" ]]; then
+        local channel_clean=$(echo "${NTFY_CHANNEL}" | tr -d '[:space:]')
+
+        if [[ -n "$channel_clean" ]]; then
+            local ntfy_url="https://ntfy.sh/${channel_clean}"
+
+            case $result_code in
+                0) echo "Updated from ${old_version} --> ${current_version}"$'\n'"Nebula version: ${nebula_version}" | \
+                    curl -H "Title: ${node_name} @ @@tun_device@@" \
+                         -H "Tags:white_check_mark" \
+                         -H "Priority:3" \
+                         --data-binary @- "${ntfy_url}" >/dev/null 2>&1 ;;
+                2) echo "ERROR on update from ${old_version} --> ${current_version}"$'\n'"Nebula version: ${nebula_version}" | \
+                    curl -H "Title: ${node_name} @ @@tun_device@@" \
+                         -H "Tags:warning" \
+                         -H "Priority:4" \
+                         --data-binary @- "${ntfy_url}" >/dev/null 2>&1 ;;
+            esac
+        fi
+    fi
 }
 
 main() {
     check_root
 
     local old_version=$(get_local_version)
-    check_update
-    check_exit=$?
+    local remote_version=$(get_remote_version "${UPDATE_SERVER}")
 
-    case $check_exit in
-        0)
-            log "Starting update process..."
-            if perform_update; then
-                log_success "Update process completed successfully"
-                report_result 0 "$old_version"
-                exit 0
-            else
-                log_error "Update process failed"
-                report_result 2 "$old_version"
-                exit 2
-            fi
-            ;;
-        1)
-            log "No update required"
-            report_result 1 "$old_version"
-            exit 1
-            ;;
-        *)
-            log_error "Failed to check for updates"
-            report_result 2 "$old_version"
-            exit 2
-            ;;
-    esac
+    if [[ "${remote_version}" == ERROR_* ]]; then
+        log_error "Failed to check for updates"
+        report_result 2 "$old_version" "$remote_version"
+        exit 2
+    fi
+
+    if [[ "$old_version" == "$remote_version" ]]; then
+        log "No update required (already at ${old_version})"
+        report_result 1 "$old_version" "$remote_version"
+        exit 1
+    fi
+
+    log "Starting update from ${old_version} to ${remote_version}..."
+    if perform_update "$remote_version"; then
+        log_success "Update process completed successfully"
+        report_result 0 "$old_version" "$remote_version"
+        exit 0
+    else
+        log_error "Update process failed"
+        report_result 2 "$old_version" "$remote_version"
+        exit 2
+    fi
 }
 
 main "$@"
