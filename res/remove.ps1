@@ -18,6 +18,17 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 Write-Log "Nebula Removal"
 Write-Log "Target: $InstallDir"
 
+$taskName = "Nebula-@@tun_device@@ Auto-Update"
+Write-Log "Removing scheduled task: $taskName"
+try {
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($task) {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        Write-Log "Scheduled task removed"
+    } else {}
+}
+catch {}
+
 $serviceName = "Nebula"
 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
 
