@@ -156,14 +156,19 @@ get_remote_version() {
     local server="$1"
     local remote_version
     local curl_output
-    local curl_exit_code
+    local http_code
 
-    curl_output=$(curl -s -u "${AUTH_USER}:${AUTH_PASS}" --max-time 10 "${server}/version.txt" 2>/dev/null)
-    curl_exit_code=$?
+    curl_output=$(curl -s -w "%{http_code}" -u "${AUTH_USER}:${AUTH_PASS}" --max-time 10 "${server}/version.txt" 2>/dev/null)
+    http_code=${curl_output: -3}
+    curl_output=${curl_output%???}
 
-    if [[ $curl_exit_code -ne 0 ]]; then
-        log_error "Network error: Could not fetch remote version from ${server}/version.txt (curl exit: $curl_exit_code)" >&2
-        echo "ERROR_FETCH"
+    if [[ "$http_code" == "404" ]]; then
+        log "No version.txt on server"
+        echo ""
+        return 0
+    elif [[ "$http_code" != "200" ]]; then
+        log_error "HTTP error ${http_code}: Could not fetch remote version from ${server}/version.txt" >&2
+        echo "ERROR_HTTP_${http_code}"
         return 1
     fi
 
@@ -184,30 +189,6 @@ get_nebula_version() {
             grep -o "Version: [0-9.]*" | cut -d' ' -f2 || echo "unknown"
     else
         echo "not_found"
-    fi
-}
-
-check_update() {
-    local local_version
-    local remote_version
-
-    local_version=$(get_local_version)
-    log "Local version: ${local_version}"
-
-    remote_version=$(get_remote_version "${UPDATE_SERVER}")
-
-    if [[ "${remote_version}" == ERROR_* ]]; then
-        return 2
-    fi
-
-    log "Remote version: ${remote_version}"
-
-    if [[ "${remote_version}" != "${local_version}" ]]; then
-        log "Update available: ${local_version} -> ${remote_version}"
-        return 0
-    else
-        log "No update needed"
-        return 1
     fi
 }
 
@@ -309,6 +290,7 @@ check_service() {
         return 1
     fi
 }
+
 perform_update() {
     local remote_version="$1"
     local local_version
@@ -376,15 +358,15 @@ report_result() {
     mkdir -p "$status_dir"
 
     cat > "${status_dir}/update-status.json" << EOF
-    {
-    "node": "$node_name",
-    "result": "${result_text}",
-    "previous": "$old_version",
-    "current": "$current_version",
-    "nebula": "$nebula_version",
-    "timestamp": "$(date -Iseconds)"
-    }
-    EOF
+{
+"node": "$node_name",
+"result": "${result_text}",
+"previous": "$old_version",
+"current": "$current_version",
+"nebula": "$nebula_version",
+"timestamp": "$(date -Iseconds)"
+}
+EOF
 
     chown nebula:users "${status_dir}" "${status_dir}/update-status.json" 2>/dev/null || true
     chmod 755 "$status_dir" 2>/dev/null || true
@@ -416,15 +398,17 @@ main() {
     check_root
 
     local old_version=$(get_local_version)
+    log "Local version: ${old_version}"
     local remote_version=$(get_remote_version "${UPDATE_SERVER}")
 
     if [[ "${remote_version}" == ERROR_* ]]; then
-        log_error "Failed to check for updates"
+        log_error "Failed to check for updates: ${remote_version}"
         report_result 2 "$old_version" "$remote_version"
         exit 2
-    fi
-
-    if [[ "$old_version" == "$remote_version" ]]; then
+    elif [[ -z "${remote_version}" ]]; then
+        log "No version.txt on server - no updates available"
+        exit 1
+    elif [[ "$old_version" == "$remote_version" ]]; then
         log "No update required (already at ${old_version})"
         report_result 1 "$old_version" "$remote_version"
         exit 1

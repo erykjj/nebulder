@@ -91,7 +91,7 @@ function Create-ScheduledTask {
                     -Principal $principal -Settings $settings `
                     -Force -ErrorAction Stop
         
-        Write-Log "Scheduled task created: $taskName"
+        Write-Log "Started scheduled task: $taskName"
         return $true
     }
     catch {
@@ -106,7 +106,6 @@ function Remove-ScheduledTask {
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($task) {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-            Write-Log "Removed existing scheduled task: $taskName"
         }
     }
     catch {}
@@ -114,7 +113,6 @@ function Remove-ScheduledTask {
 
 try {
     Write-Log "Nebula Deployment Script"
-    Write-Log "Target: $TargetPath"
 
     if (-not (Test-Admin)) {
         throw "Run as Administrator"

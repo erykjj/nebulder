@@ -89,7 +89,6 @@ function Get-RemoteVersion {
     param([string]$Server, [string]$User, [string]$Pass)
 
     $versionUrl = "$Server/version.txt"
-    Write-Log "Checking remote version"
 
     try {
         $credential = [System.Convert]::ToBase64String(
@@ -97,15 +96,28 @@ function Get-RemoteVersion {
         )
 
         $headers = @{ "Authorization" = "Basic $credential" }
-        $response = Invoke-WebRequest -Uri $versionUrl -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
-        $remoteVersion = $response.Content.Trim()
 
-        if ([string]::IsNullOrEmpty($remoteVersion)) {
-            Write-Log "Empty response from version server" -Level "ERROR"
+        $response = Invoke-WebRequest -Uri $versionUrl -Headers $headers -TimeoutSec 10 `
+                    -ErrorAction Stop -UseBasicParsing -SkipHttpErrorCheck
+        
+
+        if ($response.StatusCode -eq 404) {
+            Write-Log "No version.txt found on server" -Level "INFO"
+            return $null
+        }
+        elseif ($response.StatusCode -ne 200) {
+            Write-Log "HTTP error $($response.StatusCode) fetching remote version" -Level "ERROR"
             return $null
         }
 
-        Write-Log "Remote version: $remoteVersion"
+        $remoteVersion = $response.Content.Trim()
+
+        if ([string]::IsNullOrEmpty($remoteVersion)) {
+            Write-Log "Empty version.txt on server" -Level "INFO"
+            return $null
+        }
+
+        Write-Log "Remote version: $remoteVersion" -Level "INFO"
         return $remoteVersion
     }
     catch [System.Net.WebException] {
@@ -135,19 +147,22 @@ function Get-NebulaVersion {
 }
 
 function Check-Update {
-    param([string]$LocalVersion, [string]$RemoteVersion)
+    param(
+        [string]$LocalVersion,
+        [string]$RemoteVersion
+    )
 
-    if ($null -eq $RemoteVersion) {
-        Write-Log "Cannot check for updates (remote version unavailable)" -Level "ERROR"
-        return $false, "ERROR_FETCH"
+    if ([string]::IsNullOrEmpty($RemoteVersion)) {
+        Write-Log "Remote version unavailable (server may have no updates)" -Level "INFO"
+        return $false, "NO_VERSION_FILE"
     }
 
     if ($LocalVersion -eq $RemoteVersion) {
-        Write-Log "No update needed (local: $LocalVersion)"
+        Write-Log "No update needed (already at version: $LocalVersion)" -Level "INFO"
         return $false, "NO_UPDATE"
     }
 
-    Write-Log "Update available: $LocalVersion -> $RemoteVersion"
+    Write-Log "Update available: $LocalVersion -> $RemoteVersion" -Level "INFO"
     return $true, "UPDATE_AVAILABLE"
 }
 
@@ -219,8 +234,6 @@ function Download-Package {
 
 function Apply-Update {
     param([string]$PackageDir)
-
-    Write-Log "Applying update from: $PackageDir" -Level "INFO"
 
     $deployScript = Join-Path $PackageDir "deploy.ps1"
 
@@ -382,8 +395,6 @@ function Report-Result {
                     Invoke-RestMethod -Uri $ntfyUrl -Method Post -Body $body `
                         -Headers @{ Title = $title; Tags = $tags; Priority = $priority } `
                         -ErrorAction SilentlyContinue | Out-Null
-
-                    Write-Log "Notification sent to ntfy.sh" -Level "INFO"
                 }
             }
             catch {
@@ -416,7 +427,10 @@ try {
     $updateNeeded, $updateStatus = Check-Update -LocalVersion $oldVersion -RemoteVersion $remoteVersion
 
     if (-not $updateNeeded) {
-        if ($updateStatus -eq "ERROR_FETCH") {
+        if ($updateStatus -eq "NO_VERSION_FILE") {
+            Write-Log "No version.txt on server" -Level "INFO"
+            exit 1
+        } elseif ($updateStatus -eq "ERROR_FETCH") {
             Write-Log "Update check failed" -Level "ERROR"
             Report-Result -ResultCode 2 -OldVersion $oldVersion -NewVersion $remoteVersion -Message "Failed to fetch remote version"
             exit 2
@@ -425,8 +439,6 @@ try {
             exit 1
         }
     }
-
-    Write-Log "Starting update to version: $remoteVersion"
 
     $packageDir = Download-Package -Server $config.UPDATE_SERVER -User $config.AUTH_USER -Pass $config.AUTH_PASS -RemoteVersion $remoteVersion -NodeName $nodeName
     if (-not $packageDir) {
