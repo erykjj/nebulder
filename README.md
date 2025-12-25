@@ -1,5 +1,7 @@
 # nebulder
 
+Prononced "NEH-byool-der" (/ˈnɛb.jʊl.dɚ/) - a composite of *Nebula* + *builder*
+
 ## Python script to "build" deployment packages for [Nebula](https://nebula.defined.net/docs) mesh/overlay networks
 
 The script has only been tested under Linux and the lates `nebula-cert` binary has to be in your path.
