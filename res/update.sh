@@ -162,22 +162,16 @@ get_remote_version() {
     http_code=${curl_output: -3}
     curl_output=${curl_output%???}
 
-    if [[ "$http_code" == "404" ]]; then
-        log "No version.txt on server"
-        echo ""
+    if [[ "$http_code" != "200" ]]; then
+        echo "NO_VERSION_FILE"
         return 0
-    elif [[ "$http_code" != "200" ]]; then
-        log_error "HTTP error ${http_code}: Could not fetch remote version from ${server}/version.txt" >&2
-        echo "ERROR_HTTP_${http_code}"
-        return 1
     fi
 
     remote_version=$(echo "$curl_output" | tr -d '[:space:]')
 
     if [[ -z "${remote_version}" ]]; then
-        log_error "Empty response from server at ${server}/version.txt" >&2
-        echo "ERROR_EMPTY"
-        return 1
+        echo "NO_VERSION_FILE"
+        return 0
     fi
 
     echo "${remote_version}"
@@ -398,32 +392,31 @@ main() {
     check_root
 
     local old_version=$(get_local_version)
-    log "Local version: ${old_version}"
     local remote_version=$(get_remote_version "${UPDATE_SERVER}")
 
-    if [[ "${remote_version}" == ERROR_* ]]; then
-        log_error "Failed to check for updates: ${remote_version}"
-        report_result 2 "$old_version" "$remote_version"
-        exit 2
-    elif [[ -z "${remote_version}" ]]; then
-        log "No version.txt on server - no updates available"
-        exit 1
-    elif [[ "$old_version" == "$remote_version" ]]; then
-        log "No update required (already at ${old_version})"
-        report_result 1 "$old_version" "$remote_version"
-        exit 1
-    fi
-
-    log "Starting update from ${old_version} to ${remote_version}..."
-    if perform_update "$remote_version"; then
-        log_success "Update process completed successfully"
-        report_result 0 "$old_version" "$remote_version"
-        exit 0
-    else
-        log_error "Update process failed"
-        report_result 2 "$old_version" "$remote_version"
-        exit 2
-    fi
+    case "$remote_version" in
+        NO_VERSION_FILE)
+            log "No version.txt on server (or empty)"
+            exit 1
+            ;;
+        *)
+            if [[ "$old_version" == "$remote_version" ]]; then
+                log "No update required (already at ${old_version})"
+                exit 1
+            else
+                log "Starting update from ${old_version} to ${remote_version}..."
+                if perform_update "$remote_version"; then
+                    log_success "Update process completed successfully"
+                    report_result 0 "$old_version" "$remote_version"
+                    exit 0
+                else
+                    log_error "Update process failed"
+                    report_result 2 "$old_version" "$remote_version"
+                    exit 2
+                fi
+            fi
+            ;;
+    esac
 }
 
 main "$@"
