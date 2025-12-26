@@ -101,7 +101,6 @@ function Get-RemoteVersion {
         
 
         if ($response.StatusCode -eq 404) {
-            Write-Log "No version.txt found on server" -Level "INFO"
             return $null
         }
         elseif ($response.StatusCode -ne 200) {
@@ -120,11 +119,9 @@ function Get-RemoteVersion {
         return $remoteVersion
     }
     catch [System.Net.WebException] {
-        Write-Log "Network error fetching remote version" -Level "ERROR"
         return $null
     }
     catch {
-        Write-Log "Error fetching remote version" -Level "ERROR"
         return $null
     }
 }
@@ -424,7 +421,6 @@ try {
 
     if (-not $updateNeeded) {
         if ($updateStatus -eq "NO_VERSION_FILE") {
-            Write-Log "No version.txt on server" -Level "INFO"
             exit 1
         } elseif ($updateStatus -eq "ERROR_FETCH") {
             Write-Log "Update check failed" -Level "ERROR"
