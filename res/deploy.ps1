@@ -172,7 +172,6 @@ try {
 
     $updateConfPath = "$TargetPath\update.conf"
     if (Test-Path $updateConfPath) {
-        Write-Log "Setting up auto-update"
         Remove-ScheduledTask
         Create-ScheduledTask | Out-Null
     }

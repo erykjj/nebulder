@@ -97,8 +97,7 @@ function Get-RemoteVersion {
 
         $headers = @{ "Authorization" = "Basic $credential" }
 
-        $response = Invoke-WebRequest -Uri $versionUrl -Headers $headers -TimeoutSec 10 `
-                    -ErrorAction Stop -UseBasicParsing -SkipHttpErrorCheck
+        $response = Invoke-WebRequest -Uri $versionUrl -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
         
 
         if ($response.StatusCode -eq 404) {
@@ -248,7 +247,6 @@ function Apply-Update {
         $deployOutput = & powershell.exe -ExecutionPolicy Bypass -File "$deployScript" 2>&1
 
         if ($deployOutput) {
-            Write-Log "Deployment script output:" -Level "INFO"
             foreach ($line in $deployOutput) {
                 Write-Log "  $line" -Level "INFO"
             }
@@ -270,8 +268,6 @@ function Apply-Update {
 
 function Verify-Update {
     param([string]$ExpectedVersion)
-
-    Write-Log "Verifying update"
 
     if (-not (Test-Path $LocalVersionFile)) {
         Write-Log "Version file not found after update" -Level "ERROR"
