@@ -154,7 +154,7 @@ function Check-Update {
     }
 
     if ($LocalVersion -eq $RemoteVersion) {
-        Write-Log "No update needed (already at version: $LocalVersion)" -Level "INFO"
+        Write-Log "No update needed (already on $LocalVersion)" -Level "INFO"
         return $false, "NO_UPDATE"
     }
 
@@ -239,8 +239,6 @@ function Apply-Update {
     }
 
     try {
-        Write-Log "Running deployment script..." -Level "INFO"
-
         $deployOutput = & powershell.exe -ExecutionPolicy Bypass -File "$deployScript" 2>&1
 
         if ($deployOutput) {
@@ -250,7 +248,6 @@ function Apply-Update {
         }
 
         if ($LASTEXITCODE -eq 0) {
-            Write-Log "Deployment script completed successfully" -Level "SUCCESS"
             return $true
         } else {
             Write-Log "Deployment script failed with exit code: $LASTEXITCODE" -Level "ERROR"
