@@ -30,224 +30,279 @@ APP = 'nebulder'
 VERSION = 'v2.0.0'
 
 
-import argparse, json, os, re, shutil, yaml
+import argparse, json, re, shutil, yaml
 from copy import deepcopy
 from pathlib import Path
 from subprocess import run, PIPE
 from zipfile import ZipFile, ZIP_DEFLATED
 
 
-def process_config(config, path):
+def get_version(path):
+    version_file = path / 'version.txt'
+    if not version_file.exists():
+        return 'v1.0.0'
+    current = version_file.read_text().strip()
+    match = re.match(r'v?(\d+)\.(\d+)\.(\d+)', current)
+    if not match:
+        return 'v1.0.0'
+    major, minor, patch = map(int, match.groups())
+    patch += 1
+    return f'v{major}.{minor}.{patch}'
 
-    def get_version(path):
-        version_file='version.txt'
-        print(path, version_file)
-        if not os.path.exists(path + version_file):
-            return 'v1.0.0'
-        with open(path + version_file, 'r') as f:
-            current = f.read().strip()
-        match = re.match(r'v?(\d+)\.(\d+)\.(\d+)', current)
-        if not match:
-            return 'v1.0.0'
-        major, minor, patch = map(int, match.groups())
-        patch += 1
-        return f'v{major}.{minor}.{patch}'
+def cert_date(cert_path):
+    arguments = ['nebula-cert', 'print', '-path', str(cert_path)]
+    cert = run(arguments, stdout=PIPE, check=True)
+    cert_data = json.loads(cert.stdout)
+    not_after = cert_data['details']['notAfter']
+    return not_after
 
-    def cert_date(path):
-        arguments = ['nebula-cert', 'print', '-path', path]
-        cert = run(arguments, stdout=PIPE)
-        cert_data = json.loads(cert.stdout)
-        not_after = cert_data['details']['notAfter']
-        return not_after
+def generate_certificate_authority():
+    ca_crt = conf_path / f"{mesh['tun_device']}_ca.crt"
+    ca_key = conf_path / f"{mesh['tun_device']}_ca.private.key"
+    print(f"Certificate authority for '{mesh['tun_device']}'")
+    if ca_crt.exists() and ca_key.exists():
+        print(f"   Key already exists - expires: {cert_date(ca_crt)}\n   Skipping key generation")
+        return False
+    else:
+        run(['nebula-cert', 'ca', '-name', mesh['tun_device'], 
+             '-out-crt', str(ca_crt), 
+             '-out-key', str(ca_key)], check=True)
+        ca_qr = conf_path / f"{mesh['tun_device']}_ca.qr"
+        run(['nebula-cert', 'print', '-path', str(ca_crt),
+             '-out-qr', str(ca_qr)], stdout=PIPE, check=True)
+        print(f"   Certificate expires: {cert_date(ca_crt)}")
+        return True
 
-    def certificate_authority():
-        print(f"Certificate authority for '{mesh['tun_device']}'")
-        if os.path.isfile(conf_path + mesh['tun_device'] + '_ca.crt') and os.path.isfile(conf_path + mesh['tun_device'] + '_ca.private.key'):
-            print(f"   Key already exists - expires: {cert_date(conf_path + mesh['tun_device'] + '_ca.crt')}\n   Skipping key generation")
-            return False
+def copy_files(dest_path, device, op_sys):
+    print(f"\nProcessing device '{device['name']}' ({op_sys})")
+    dest_path.mkdir(exist_ok=True)
+    update_conf = conf_path / 'update.conf'
+    if update_conf.exists():
+        shutil.copy(str(update_conf), str(dest_path))
+    if op_sys == 'linux':
+        for script_name in ['deploy.sh', 'remove.sh', 'update.sh']:
+            script_path = dest_path / script_name
+            script_path.write_text(scripts[script_name])
+        for service in ['nebula.service', 'nebula-update.service', 'nebula-update.timer']:
+            renamed = re.sub('nebula', f"nebula_{mesh['tun_device']}", service)
+            service_path = dest_path / renamed
+            service_path.write_text(scripts[service])
+    elif op_sys == 'android' or op_sys == 'ios':
+        ca_qr_src = conf_path / f"{mesh['tun_device']}_ca.qr"
+        ca_qr_dest = dest_path / 'ca.qr'
+        shutil.copy(str(ca_qr_src), str(ca_qr_dest))
+    elif op_sys == 'macos':
+        for script_name in ['deploy-mac.sh', 'remove-mac.sh', 'update-mac.sh']:
+            renamed = re.sub('-mac', '', script_name)
+            script_path = dest_path / renamed
+            script_path.write_text(scripts[script_name])
+        for service in ['nebula.plist', 'nebula-update.plist']:
+            renamed = re.sub('nebula', f"nebula_{mesh['tun_device']}", service)
+            service_path = dest_path / renamed
+            service_path.write_text(scripts[service])
+    else:
+        for script_name in ['update.bat', 'deploy.ps1', 'update.ps1', 'remove.ps1']:
+            script_path = dest_path / script_name
+            script_path.write_text(scripts[script_name])
+    ca_crt_src = conf_path / f"{mesh['tun_device']}_ca.crt"
+    ca_crt_dest = dest_path / 'ca.crt'
+    shutil.copy(str(ca_crt_src), str(ca_crt_dest))
+    host_crt = dest_path / 'host.crt'
+    host_key = dest_path / 'host.key'
+    if host_crt.exists() or host_key.exists():
+        if is_new:
+            host_crt.unlink(missing_ok=True)
+            host_key.unlink(missing_ok=True)
         else:
-            run(['nebula-cert', 'ca', '-name', mesh['tun_device'], '-out-crt', conf_path + mesh['tun_device'] + '_ca.crt', '-out-key', conf_path + mesh['tun_device'] + '_ca.private.key'])
-            run(['nebula-cert', 'print', '-path', conf_path + mesh['tun_device']+ '_ca.crt', '-out-qr', conf_path + mesh['tun_device'] + '_ca.qr'], stdout=PIPE)
-            print(f"   Certificate expires: {cert_date( conf_path + mesh['tun_device'] + '_ca.crt')}")
-            return True
+            print(f"   Certificate already exists - expires: {cert_date(host_crt)}\n   Skipping key generation\n   Added config.yaml")
+            return
+    ca_crt_path = conf_path / f"{mesh['tun_device']}_ca.crt"
+    ca_key_path = conf_path / f"{mesh['tun_device']}_ca.private.key"
+    arguments = ['nebula-cert', 'sign', '-name', device['name'],
+                 '-out-crt', str(host_crt), '-out-key', str(host_key),
+                 '-ca-crt', str(ca_crt_path), '-ca-key', str(ca_key_path),
+                 '-ip', f"{device['nebula_ip']}/24"]
+    if 'groups' in device:
+        arguments.extend(['-groups', ','.join(device['groups'])])
+    run(arguments, check=True)
+    if op_sys in ['linux', 'windows', 'macos']:
+        run(['nebula-cert', 'print', '-path', str(host_crt)], stdout=PIPE, check=True)
+    else:
+        host_qr = dest_path / 'host.qr'
+        run(['nebula-cert', 'print', '-path', str(host_crt), '-out-qr', str(host_qr)], 
+            stdout=PIPE, check=True)
+    print(f"   Added config.yaml and key files\n   Certificate expires: {cert_date(host_crt)}")
 
-    def copy_files(path, device, op_sys):
-        print(f"\nProcessing device '{device['name']}' ({op_sys})")
-        os.makedirs(path, exist_ok=True)
-        if os.path.exists(conf_path + 'update.conf'):
-            shutil.copy(conf_path + 'update.conf', path)
-        if op_sys == 'linux':
-            for script in ['deploy.sh', 'remove.sh', 'update.sh']:
-                with open(path + script, 'w', encoding='UTF-8') as f:
-                    f.write(scripts[script])
-            for service in ['nebula.service', 'nebula-update.service', 'nebula-update.timer']:
-                renamed = re.sub('nebula', f"nebula_{mesh['tun_device']}", service)
-                with open(path + renamed, 'w', encoding='UTF-8') as f:
-                    f.write(scripts[service])
-        elif op_sys == 'android' or op_sys == 'ios':
-            shutil.copy(conf_path + mesh['tun_device'] + '_ca.qr', path + 'ca.qr')
-        elif op_sys == 'macos':
-            for script in ['deploy-mac.sh', 'remove-mac.sh', 'update-mac.sh']:
-                renamed = re.sub('-mac', '', script)
-                with open(path + renamed, 'w', encoding='UTF-8') as f:
-                    f.write(scripts[script])
-            for service in ['nebula.plist', 'nebula-update.plist']:
-                renamed = re.sub('nebula', f"nebula_{mesh['tun_device']}", service)
-                with open(path + renamed, 'w', encoding='UTF-8') as f:
-                    f.write(scripts[service])
-        else: # windows
-            for script in ['update.bat', 'deploy.ps1', 'update.ps1', 'remove.ps1']:
-                with open(path + script, 'w', encoding='UTF-8') as f:
-                    f.write(scripts[script])
-        shutil.copy(conf_path + mesh['tun_device'] + '_ca.crt', path + 'ca.crt')
-        if os.path.isfile(path + 'host.crt') or os.path.isfile(path + 'host.key'):
-            if is_new:
-                os.remove(path + 'host.crt')
-                os.remove(path + 'host.key')
+def zip_package(archive_name):
+    package_path = root_path / archive_name
+    version_file = package_path / 'version'
+    version_file.write_text(args['V'] + '\n')
+    if not args['z']:
+        return
+    zip_path = root_path / f"{archive_name}_{args['V']}.zip"
+    with ZipFile(zip_path, 'w', compression=ZIP_DEFLATED) as zip_file:
+        for file in package_path.iterdir():
+            zip_file.write(str(file), file.name)
+
+def process_firewall(firewall_rules):
+    processed = []
+    for rules in firewall_rules:
+        for rule, hosts in rules.items():
+            res = re.search(r'(\d+)(?:/([a-zA-Z]+))?', rule)
+            if not res:
+                continue
+            inbound = {'port': int(res.group(1))}
+            inbound['proto'] = res.group(2) if res.group(2) else 'any'
+            if hosts == 'any':
+                inbound['host'] = 'any'
+            elif len(hosts) == 1:
+                inbound['group'] = hosts[0]
             else:
-                print(f"   Certificate already exists - expires: {cert_date( path + 'host.crt')}\n   Skipping key generation\n   Added config.yaml")
-                return
-        arguments = ['nebula-cert', 'sign', '-name', device['name'], '-out-crt', path + 'host.crt', '-out-key', path + 'host.key', '-ca-crt', conf_path + mesh['tun_device'] + '_ca.crt', '-ca-key', conf_path + mesh['tun_device'] + '_ca.private.key', '-ip', f"{device['nebula_ip']}/24"]
-        if 'groups' in device.keys():
-            arguments.append('-groups')
-            arguments.append(','.join(device['groups']))
-        run(arguments)
-        if op_sys == 'linux' or op_sys == 'windows' or op_sys == 'macos':
-            run(['nebula-cert', 'print', '-path', path + 'host.crt'], stdout=PIPE)
-        else: # mobile: generate QR
-            run(['nebula-cert', 'print', '-path', path + 'host.crt', '-out-qr', path + 'host.qr'], stdout=PIPE)
-        print(f"   Added config.yaml and key files\n   Certificate expires: {cert_date( path + 'host.crt')}")
+                inbound['groups'] = hosts
+            processed.append(inbound)
+    return processed
 
+def add_common_config(node, base_config):
+    if node.get('os') == 'windows':
+        p = r'C:\\nebula\\' + mesh['tun_device'] + r'\\'
+    elif node.get('os') == 'macos':
+        p = f"/usr/local/etc/nebula/{mesh['tun_device']}/"
+    else:
+        p = f"/etc/nebula/{mesh['tun_device']}/"
+    base_config['pki'] = {
+        'ca': p + 'ca.crt',
+        'cert': p + 'host.crt',
+        'key': p + 'host.key'
+    }
+    base_config['tun'] = {'dev': mesh['tun_device']}
+    if 'preferred_ranges' in node:
+        base_config['preferred_ranges'] = node['preferred_ranges']
+    if 'inbound_firewall' in node:
+        inbound_rules = process_firewall(node['inbound_firewall'])
+        base_config['firewall']['inbound'] += inbound_rules
+    return base_config
 
-    def zip_package(path, archive):
-        base_path = f'{path}/{archive}'
-        with open(base_path + '/version', 'w') as f:
-            f.write(args['V'] + '\n')
-        if not args['z']:
-            return
-        with ZipFile(f'{base_path}_{args['V']}.zip', 'w', compression=ZIP_DEFLATED) as zip_file:
-            for f in os.listdir(path + '/' + archive + '/'):
-                zip_file.write(f'{base_path}/{f}', f)
+def create_device_config(dest_path, device_type, device_name, op_sys, device_ip, config_data):
+    config_file = dest_path / 'config.yaml'
+    if device_type == 'lighthouse':
+        description = f"lighthouse '{device_name}'"
+    else:
+        description = f"node '{device_name}'"
+    header = f"# Nebula config for {op_sys} {description} on '{mesh['tun_device']}' mesh network device with IP {device_ip}\n\n"
+    config_file.write_text(header)
+    with config_file.open('a') as f:
+        yaml.dump(config_data, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
 
-    def add_common(node, conf):
-
-        def process_firewall(firewall):
-            processed = []
-            inbound = {}
-            for rules in firewall:
-                for rule, hosts in rules.items():
-                    res = re.search(r'(\d+)(?:/([a-zA-Z]+))?', rule)
-                    if res:
-                        inbound = { 'port': int(res.group(1)) }
-                        if res.group(2):
-                            proto = res.group(2)
-                        else:
-                            proto = 'any'
-                        inbound['proto'] = proto
-                        if hosts == 'any':
-                            inbound['host'] = 'any'
-                        elif len(hosts) == 1:
-                            inbound['group'] = hosts[0]
-                        else:
-                            inbound['groups'] = hosts
-                        processed.append(inbound)
-            return processed
-
-        if node.get('os') == 'windows':
-            p = r'C:\\nebula\\' + mesh['tun_device'] + r'\\'
-        elif node.get('os') == 'macos':
-            p = f"/usr/local/etc/nebula/{mesh['tun_device']}/"
-        else:
-            p = f"/etc/nebula/{mesh['tun_device']}/"
-        conf['pki'] = { 'ca': p + 'ca.crt',
-                        'cert': p + 'host.crt',
-                        'key': p + 'host.key' }
-        conf['tun'] = { 'dev': mesh['tun_device'] }
-        if 'preferred_ranges' in node.keys():
-            conf['preferred_ranges'] = node['preferred_ranges']
-        if 'inbound_firewall' in node.keys():
-            conf['firewall']['inbound'] += process_firewall(node['inbound_firewall'])
-
-    def process_lighthouses():
-        if 'lighthouses' not in mesh.keys():
-            print('*** ERROR: No lighthouse defined!!\n')
+def process_lighthouses():
+    if 'lighthouses' not in mesh:
+        print('*** ERROR: No lighthouse defined!!\n')
+        exit()
+    for i, lighthouse in enumerate(mesh['lighthouses']):
+        if 'name' not in lighthouse:
+            print(f"*** ERROR: Lighthouse {i+1} missing 'name' field!!\n")
             exit()
-        for lighthouse in mesh['lighthouses']:
-            host_map = []
-            for ip in lighthouse['public_ip']:
-                if ':' not in ip:
-                    ip += f":{lighthouse['listen_port']}"
-                host_map.append(ip)
-            relays[lighthouse['nebula_ip']] = host_map
-        for lighthouse in mesh['lighthouses']:
-            path = root_path + 'lighthouse_' + lighthouse['name'] + '/'
-            op_sys = lighthouse.get('os', 'linux')
-            copy_files(path, lighthouse, op_sys)
-            ips.append(lighthouse['nebula_ip'])
-            conf = deepcopy(base)
-            add_common(lighthouse, conf)
-            conf['listen'] = { 'port': lighthouse['listen_port'] }
-            conf['lighthouse'] = { 'am_lighthouse': True }
-            conf['relay'] = { 'am_relay': True, 'use_relays': False }
-            conf['static_host_map'] = {}
-            for host in relays.keys():
-                if host == lighthouse['nebula_ip']:
-                    continue
-                conf['static_host_map'][host] = list(relays[host])
-            with open(path + 'node', 'w', encoding='UTF-8') as f:
-                f.write('lighthouse_' + lighthouse['name'])
-            with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:
-                f.write(f"# Nebula config for {op_sys} lighthouse '{lighthouse['name']}' on '{mesh['tun_device']}' mesh network device with IP {lighthouse['nebula_ip']}\n\n")
-                yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
-            zip_package(root_path, 'lighthouse_' + lighthouse['name'])
+        if 'nebula_ip' not in lighthouse:
+            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'nebula_ip' field!!\n")
+            exit()
+        if 'public_ip' not in lighthouse:
+            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'public_ip' field!!\n")
+            exit()
+        if 'listen_port' not in lighthouse:
+            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'listen_port' field!!\n")
+            exit()
+    for lighthouse in mesh['lighthouses']:
+        host_map = []
+        for ip in lighthouse['public_ip']:
+            if ':' not in ip:
+                ip += f":{lighthouse['listen_port']}"
+            host_map.append(ip)
+        relays[lighthouse['nebula_ip']] = host_map
+    for lighthouse in mesh['lighthouses']:
+        path = root_path / f"lighthouse_{lighthouse['name']}"
+        op_sys = lighthouse.get('os', 'linux')
+        copy_files(path, lighthouse, op_sys)
+        lighthouse_ips.append(lighthouse['nebula_ip'])
+        conf = deepcopy(base_config)
+        conf = add_common_config(lighthouse, conf)
+        conf['listen'] = {'port': lighthouse['listen_port']}
+        conf['lighthouse'] = {'am_lighthouse': True}
+        conf['relay'] = {'am_relay': True, 'use_relays': False}
+        conf['static_host_map'] = {}
+        for host in relays:
+            if host == lighthouse['nebula_ip']:
+                continue
+            conf['static_host_map'][host] = list(relays[host])
+        node_file = path / 'node'
+        node_file.write_text(f"lighthouse_{lighthouse['name']}")
+        create_device_config(
+            path, 'lighthouse', lighthouse['name'], op_sys, lighthouse['nebula_ip'], conf
+        )
+        zip_package(f"lighthouse_{lighthouse['name']}")
 
-    def process_nodes():
-        if 'nodes' not in mesh.keys():
-            print('*** No standard nodes defined! ***')
-            return
-        for node in mesh['nodes']:
-            path = root_path  + 'node_' + node['name'] + '/'
-            op_sys = node.get('os', 'linux')
-            copy_files(path, node, op_sys)
-            conf = deepcopy(base)
-            add_common(node, conf)
-            conf['static_host_map'] = {}
-            for host in relays.keys():
-                conf['static_host_map'][host] = list(relays[host])
-            conf['lighthouse'] = { 'hosts': list(ips) }
-            if 'advertise_addrs' in node.keys():
-                conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
-            conf['relay'] = { 'relays': ips }
-            with open(path + 'node', 'w', encoding='UTF-8') as f:
-                f.write('node_' + node['name'])
-            with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:
-                f.write(f"# Nebula config for {op_sys} node '{node['name']}' on '{mesh['tun_device']}' mesh network device with IP {node['nebula_ip']}\n\n")
-                yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
-            zip_package(root_path, 'node_' + node['name'])
+def process_nodes():
+    if 'nodes' not in mesh:
+        print('*** No standard nodes defined! ***')
+        return
+    for i, node in enumerate(mesh['nodes']):
+        if 'name' not in node:
+            print(f"*** ERROR: Node {i+1} missing 'name' field!!\n")
+            exit()
+        if 'nebula_ip' not in node:
+            print(f"*** ERROR: Node '{node['name']}' missing 'nebula_ip' field!!\n")
+            exit()
+    for node in mesh['nodes']:
+        path = root_path / f"node_{node['name']}"
+        op_sys = node.get('os', 'linux')
+        copy_files(path, node, op_sys)
+        conf = deepcopy(base_config)
+        conf = add_common_config(node, conf)
+        conf['static_host_map'] = {}
+        for host in relays:
+            conf['static_host_map'][host] = list(relays[host])
+        conf['lighthouse'] = {'hosts': list(lighthouse_ips)}
+        if 'advertise_addrs' in node:
+            conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
+        conf['relay'] = {'relays': lighthouse_ips}
+        node_file = path / 'node'
+        node_file.write_text(f"node_{node['name']}")
+        create_device_config(
+            path, 'node', node['name'], op_sys, node['nebula_ip'], conf
+        )
+        zip_package(f"node_{node['name']}")
 
+def load_resources():
+    res_path = Path(__file__).resolve().parent / 'res'
+    base_config_path = res_path / 'config.yaml'
+    with base_config_path.open() as f:
+        base_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
+    scripts_dict = {}
+    scripts_dir = res_path / 'scripts'
+    for script_file in scripts_dir.iterdir():
+        with script_file.open() as f:
+            scripts_dict[script_file.name] = f.read()
+    return base_config, scripts_dict
 
-    res_path = str(Path(__file__).resolve().parent) + '/res/'
-    with open(res_path + 'config.yaml') as f:
-        base = yaml.load(f, Loader=yaml.loader.SafeLoader)
-    with open(config) as f:
+def process_config(config_path, output_dir):
+    global mesh, root_path, conf_path, base_config, scripts, is_new, relays, lighthouse_ips
+    with open(config_path) as f:
         mesh = yaml.load(f, Loader=yaml.loader.SafeLoader)
-
-    root_path = path + '/' + mesh['tun_device'] + '/'
-    conf_path = path + '/'
-    os.makedirs(root_path, exist_ok=True)
+    if 'tun_device' not in mesh:
+        print("*** ERROR: Missing 'tun_device' in mesh configuration!!\n")
+        exit()
+    root_path = Path(output_dir) / mesh['tun_device']
+    conf_path = Path(output_dir)
+    root_path.mkdir(exist_ok=True)
     if not args['V']:
         args['V'] = get_version(root_path)
-    with open(root_path + 'version.txt', 'w') as f:
-        f.write(args['V'] + '\n')
-
-    scripts = {}
-    for script in Path(res_path + '/scripts').iterdir():
-        with open(script) as f:
-            scripts[script.name] = f.read().replace('@@tun_device@@', mesh['tun_device'])
-
-    is_new = certificate_authority()
+    version_file = root_path / 'version.txt'
+    version_file.write_text(args['V'] + '\n')
+    base_config, scripts_dict = load_resources()
+    for script_name in scripts_dict:
+        scripts_dict[script_name] = scripts_dict[script_name].replace('@@tun_device@@', mesh['tun_device'])
+    scripts = scripts_dict
+    is_new = generate_certificate_authority()
     relays = {}
-    ips = []
+    lighthouse_ips = []
     process_lighthouses()
     process_nodes()
     print(f'\nCompleted successfully\n   See output in {root_path}\n')
@@ -259,10 +314,9 @@ parser.add_argument("Outline", help='Network outline (YAML format)')
 parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where Outline is located)')
 parser.add_argument('-z', action='store_true', help='Zip packages')
 parser.add_argument('-V', metavar='id', help='Config version number or id (optional)')
-
 args = vars(parser.parse_args())
 if args['o']:
-    path = args['o'].rstrip('/')
+    output_path = Path(args['o'].rstrip('/'))
 else:
-    path = str(Path(args['Outline']).resolve().parent)
-process_config(args['Outline'], path)
+    output_path = Path(args['Outline']).resolve().parent
+process_config(args['Outline'], output_path)
