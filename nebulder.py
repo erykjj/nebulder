@@ -5,7 +5,7 @@
 
   Description:    Generate Nebula configs based on a network outline
 
-  MIT License:    Copyright (c) 2025 Eryk J.
+  MIT License:    Copyright (c) 2026 Eryk J.
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -80,8 +80,10 @@ def process_config(config, path):
             for script in ['deploy.sh', 'remove.sh', 'update.sh']:
                 with open(path + script, 'w', encoding='UTF-8') as f:
                     f.write(scripts[script])
-            for unit in [f"nebula_{mesh['tun_device']}.service", f"nebula_{mesh['tun_device']}-update.service", f"nebula_{mesh['tun_device']}-update.timer"]:
-                shutil.copy(root_path + unit, path)
+            for service in ['nebula.service', 'nebula-update.service', 'nebula-update.timer']:
+                renamed = re.sub('nebula', f"nebula_{mesh['tun_device']}", service)
+                with open(path + renamed, 'w', encoding='UTF-8') as f:
+                    f.write(scripts[service])
         elif op_sys == 'android' or op_sys == 'ios':
             shutil.copy(conf_path + mesh['tun_device'] + '_ca.qr', path + 'ca.qr')
         elif op_sys == 'macos':
@@ -214,13 +216,6 @@ def process_config(config, path):
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
             zip_package(root_path, 'node_' + node['name'])
 
-    def create_systemd_units():
-        for service in ['nebula.service', 'nebula-update.service', 'nebula-update.timer']:
-            renamed = re.sub('nebula', f"nebula_{mesh['tun_device']}", service)
-            with open(res_path + service) as f:
-                txt = f.read()
-            with open(root_path + renamed, 'w', encoding='UTF-8') as f:
-                f.write(re.sub('@@tun_device@@', mesh['tun_device'], txt, flags=re.MULTILINE))
 
     res_path = str(Path(__file__).resolve().parent) + '/res/'
     with open(res_path + 'config.yaml') as f:
@@ -235,20 +230,17 @@ def process_config(config, path):
         args['V'] = get_version(root_path)
     with open(root_path + 'version.txt', 'w') as f:
         f.write(args['V'] + '\n')
-    create_systemd_units()
 
     scripts = {}
-    for script in ['deploy.sh', 'remove.sh', 'update.sh', 'update.bat', 'deploy.ps1', 'update.ps1', 'remove.ps1']:
-        with open(res_path + script) as f:
-            scripts[script] = f.read().replace('@@tun_device@@', mesh['tun_device'])
+    for script in Path(res_path + '/scripts').iterdir():
+        with open(script) as f:
+            scripts[script.name] = f.read().replace('@@tun_device@@', mesh['tun_device'])
 
     is_new = certificate_authority()
     relays = {}
     ips = []
     process_lighthouses()
     process_nodes()
-    for unit in [f"nebula_{mesh['tun_device']}.service", f"nebula_{mesh['tun_device']}-update.service", f"nebula_{mesh['tun_device']}-update.timer"]:
-        os.remove(root_path + unit)
     print(f'\nCompleted successfully\n   See output in {root_path}\n')
 
 
