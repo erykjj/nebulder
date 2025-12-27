@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>homebrew.mxcl.nebula_@@tun_device@@-update</string>
+    <string>nebula_@@tun_device@@-update</string>
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/lib/nebula/@@tun_device@@-update.sh</string>

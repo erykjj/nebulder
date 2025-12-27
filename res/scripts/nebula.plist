@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>homebrew.mxcl.nebula_@@tun_device@@</string>
+    <string>nebula_@@tun_device@@</string>
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/nebula</string>
