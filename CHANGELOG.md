@@ -4,16 +4,13 @@
 
 ### Added
 
-- Auto-update functionality with own server
-- Added version file to packages
+- *Auto-update functionality* with own server
 
 ### Changed
 
-- Added version number to zipped package names
+- Major rewrite of node scripts
 
 ### Fixed
-
-- Fixed date parsing
 
 ### Removed
 
