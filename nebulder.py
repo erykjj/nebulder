@@ -87,7 +87,14 @@ def process_config(config, path):
         elif op_sys == 'android' or op_sys == 'ios':
             shutil.copy(conf_path + mesh['tun_device'] + '_ca.qr', path + 'ca.qr')
         elif op_sys == 'macos':
-            pass
+            for script in ['deploy-mac.sh', 'remove-mac.sh', 'update-mac.sh']:
+                renamed = re.sub('-mac', '', script)
+                with open(path + renamed, 'w', encoding='UTF-8') as f:
+                    f.write(scripts[script])
+            for service in ['nebula.plist', 'nebula-update.plist']:
+                renamed = re.sub('nebula', f"nebula_{mesh['tun_device']}", service)
+                with open(path + renamed, 'w', encoding='UTF-8') as f:
+                    f.write(scripts[service])
         else: # windows
             for script in ['update.bat', 'deploy.ps1', 'update.ps1', 'remove.ps1']:
                 with open(path + script, 'w', encoding='UTF-8') as f:
