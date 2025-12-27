@@ -155,6 +155,8 @@ def process_config(config, path):
 
         if node.get('os') == 'windows':
             p = r'C:\\nebula\\' + mesh['tun_device'] + r'\\'
+        elif node.get('os') == 'macos':
+            p = f"/usr/local/etc/nebula/{mesh['tun_device']}/"
         else:
             p = f"/etc/nebula/{mesh['tun_device']}/"
         conf['pki'] = { 'ca': p + 'ca.crt',
@@ -195,7 +197,7 @@ def process_config(config, path):
             with open(path + 'node', 'w', encoding='UTF-8') as f:
                 f.write('lighthouse_' + lighthouse['name'])
             with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:
-                f.write(f"# Nebula config for lighthouse '{lighthouse['name']}' on '{mesh['tun_device']}' network device: {lighthouse['nebula_ip']}\n\n")
+                f.write(f"# Nebula config for {op_sys} lighthouse '{lighthouse['name']}' on '{mesh['tun_device']}' mesh network device with IP {lighthouse['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
             zip_package(root_path, 'lighthouse_' + lighthouse['name'])
 
@@ -219,7 +221,7 @@ def process_config(config, path):
             with open(path + 'node', 'w', encoding='UTF-8') as f:
                 f.write('node_' + node['name'])
             with open(path + 'config.yaml', 'w', encoding='UTF-8') as f:
-                f.write(f"# Nebula config for node '{node['name']}' on '{mesh['tun_device']}' network device: {node['nebula_ip']}\n\n")
+                f.write(f"# Nebula config for {op_sys} node '{node['name']}' on '{mesh['tun_device']}' mesh network device with IP {node['nebula_ip']}\n\n")
                 yaml.dump(conf, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
             zip_package(root_path, 'node_' + node['name'])
 
