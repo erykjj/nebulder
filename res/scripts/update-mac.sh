@@ -76,9 +76,9 @@ restore_backup() {
         return 1
     fi
     # Run the deploy.sh script from the backup to restore everything
-    if [[ -f "${BACKUP_DIR}/deploy-mac.sh" ]]; then
-        if /bin/bash "${BACKUP_DIR}/deploy-mac.sh"; then
-            log "Restore completed via backup's deploy-mac.sh"
+    if [[ -f "${BACKUP_DIR}/deploy.sh" ]]; then
+        if /bin/bash "${BACKUP_DIR}/deploy.sh"; then
+            log "Restore completed via backup's deploy.sh"
             return 0
         else
             log_error "Restore script failed"
@@ -167,14 +167,14 @@ apply_update() {
         log_error "Cannot cd to ${temp_dir}"
         return 1
     }
-    if [[ ! -f "./deploy-mac.sh" ]]; then
-        log_error "deploy-mac.sh not found in ${temp_dir}"
+    if [[ ! -f "./deploy.sh" ]]; then
+        log_error "deploy.sh not found in ${temp_dir}"
         return 1
     fi
-    chmod +x ./deploy-mac.sh
-    log "Running deploy-mac.sh..."
-    if ! ./deploy-mac.sh; then
-        log_error "deploy-mac.sh failed with exit code $?"
+    chmod +x ./deploy.sh
+    log "Running deploy.sh..."
+    if ! ./deploy.sh; then
+        log_error "deploy.sh failed with exit code $?"
         return 1
     fi
     log "Update applied successfully"
@@ -299,7 +299,19 @@ EOF
     fi
 }
 
+trim_log() {
+    local log_file="$1"
+    local max_size_mb=1
+    local max_size_bytes=$((max_size_mb * 1024 * 1024))
+    if [[ -f "$log_file" ]] && [[ $(stat -f%z "$log_file" 2>/dev/null || echo 0) -gt $max_size_bytes ]]; then
+        tail -c ${max_size_bytes} "$log_file" > "${log_file}.tmp" && mv "${log_file}.tmp" "$log_file"
+        log "Trimmed oversized log file: $log_file"
+    fi
+}
+
 main() {
+    trim_log "/usr/local/var/log/nebula_@@tun_device@@.log"
+    trim_log "/usr/local/var/log/nebula_@@tun_device@@-update.log"
     check_root
     local old_version=$(get_local_version)
     local remote_version=$(get_remote_version "${UPDATE_SERVER}")
