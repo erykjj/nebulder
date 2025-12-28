@@ -8,7 +8,6 @@ if [[ "$(id -u)" != "0" ]]; then
     exit 1
 fi
 
-# Paths
 NEBULA_BIN_SOURCE=""
 NEBULA_BIN_TARGET="/usr/local/bin/nebula"
 CONFIG_DIR="/usr/local/etc/nebula/@@tun_device@@"
@@ -38,7 +37,6 @@ else
 fi
 
 echo -e "\n* Stopping and unloading services"
-# Always attempt to unload both services before installing files.
 launchctl unload "${LAUNCH_DAEMONS_DIR}/nebula_@@tun_device@@.plist" 2>/dev/null || true
 launchctl unload "${LAUNCH_DAEMONS_DIR}/nebula_@@tun_device@@-update.plist" 2>/dev/null || true
 
@@ -51,23 +49,30 @@ cp -f host.* ca.crt config.yaml version node "${CONFIG_DIR}/" 2>/dev/null || {
     exit 1
 }
 
-if [[ -f "./update.sh" ]]; then
-    install -m 740 "./update.sh" "${UPDATE_SCRIPT_TARGET}"
-    echo "Update script installed."
+if [[ -f "./update.conf" ]]; then
+    cp -f ./update.conf "${CONFIG_DIR}/"
+    chmod 600 "${CONFIG_DIR}/update.conf"
+    echo "Update config copied."
+
+    if [[ -f "./update.sh" ]]; then
+        install -m 740 "./update.sh" "${UPDATE_SCRIPT_TARGET}"
+        echo "Update script installed."
+    fi
 fi
 
 echo -e "\n* Configuring launchd services"
-# Copy pre-made plist templates from package
 if [[ -f "./nebula_@@tun_device@@.plist" ]]; then
     install -m 644 "./nebula_@@tun_device@@.plist" "${LAUNCH_DAEMONS_DIR}/"
     launchctl load -w "${LAUNCH_DAEMONS_DIR}/nebula_@@tun_device@@.plist"
     echo "Main service loaded."
 fi
 
-if [[ -f "./nebula_@@tun_device@@-update.plist" ]]; then
-    install -m 644 "./nebula_@@tun_device@@-update.plist" "${LAUNCH_DAEMONS_DIR}/"
-    launchctl load -w "${LAUNCH_DAEMONS_DIR}/nebula_@@tun_device@@-update.plist"
-    echo "Update agent loaded."
+if [[ -f "./update.conf" ]]; then
+    if [[ -f "./nebula_@@tun_device@@-update.plist" ]]; then
+        install -m 644 "./nebula_@@tun_device@@-update.plist" "${LAUNCH_DAEMONS_DIR}/"
+        launchctl load -w "${LAUNCH_DAEMONS_DIR}/nebula_@@tun_device@@-update.plist"
+        echo "Update agent loaded."
+    fi
 fi
 
 echo -e "\nDone."
