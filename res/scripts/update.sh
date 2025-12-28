@@ -52,90 +52,6 @@ check_root() {
     fi
 }
 
-create_backup() {
-    rm -rf "${BACKUP_DIR}"
-    mkdir -p "${BACKUP_DIR}/config"
-    mkdir -p "${BACKUP_DIR}/etc/systemd/system"
-    mkdir -p "${BACKUP_DIR}/usr/lib/nebula"
-
-    for unit in nebula_@@tun_device@@.service nebula_@@tun_device@@-update.service nebula_@@tun_device@@-update.timer; do
-        if [[ -f "/etc/systemd/system/${unit}" ]]; then
-            cp -a "/etc/systemd/system/${unit}" "${BACKUP_DIR}/etc/systemd/system/" 2>/dev/null || true
-        fi
-    done
-
-    if [[ -f "${UPDATE_SCRIPT}" ]]; then
-        cp -a "${UPDATE_SCRIPT}" "${BACKUP_DIR}/usr/lib/nebula/" 2>/dev/null || true
-    fi
-
-    if [[ -f "${NEBULA_BINARY}" ]]; then
-        cp -a "${NEBULA_BINARY}" "${BACKUP_DIR}/usr/lib/nebula/" 2>/dev/null || true
-    else
-        log_warning "Nebula binary not found: ${NEBULA_BINARY}"
-    fi
-
-    if [[ -d "${NEBULA_CONFIG_DIR}" ]]; then
-        cp -a "${NEBULA_CONFIG_DIR}/"* "${BACKUP_DIR}/config/" 2>/dev/null || true
-    else
-        log_warning "Config directory not found: ${NEBULA_CONFIG_DIR}"
-    fi
-
-    log "Backup created at: ${BACKUP_DIR}"
-}
-
-restore_backup() {
-    log "Restoring from backup..."
-
-    if [[ ! -d "${BACKUP_DIR}" ]]; then
-        log_error "Backup directory not found: ${BACKUP_DIR}"
-        return 1
-    fi
-
-    log "Stopping Nebula service..."
-    sudo systemctl stop nebula_@@tun_device@@.service 2>/dev/null || true
-    sudo systemctl stop nebula_@@tun_device@@-update.timer 2>/dev/null || true
-
-    if [[ -d "${BACKUP_DIR}/etc/systemd/system" ]]; then
-        for unit in "${BACKUP_DIR}/etc/systemd/system"/*; do
-            if [[ -f "$unit" ]]; then
-                unit_name=$(basename "$unit")
-                cp -a "$unit" "/etc/systemd/system/"
-                log "Restored systemd unit: ${unit_name}"
-            fi
-        done
-        systemctl daemon-reload 2>/dev/null || true
-    fi
-
-    if [[ -f "${BACKUP_DIR}/usr/lib/nebula/@@tun_device@@-update.sh" ]]; then
-        cp -a "${BACKUP_DIR}/usr/lib/nebula/@@tun_device@@-update.sh" "${UPDATE_SCRIPT}"
-        chmod 740 "${UPDATE_SCRIPT}"
-        chown root:nebula "${UPDATE_SCRIPT}"
-        log "Restored update script"
-    fi
-
-    if [[ -f "${BACKUP_DIR}/usr/lib/nebula/nebula" ]]; then
-        cp -a "${BACKUP_DIR}/usr/lib/nebula/nebula" "${NEBULA_BINARY}"
-        chown nebula:nebula "${NEBULA_BINARY}" 2>/dev/null || true
-        chmod 750 "${NEBULA_BINARY}" 2>/dev/null || true
-        setcap cap_net_admin=+pe "${NEBULA_BINARY}" 2>/dev/null || true
-        log "Restored nebula binary"
-    fi
-
-    if [[ -d "${BACKUP_DIR}/config" ]]; then
-        rm -rf "${NEBULA_CONFIG_DIR}"
-        mkdir -p "${NEBULA_CONFIG_DIR}"
-        cp -a "${BACKUP_DIR}/config/"* "${NEBULA_CONFIG_DIR}/" 2>/dev/null || true
-        chown -R nebula:nebula "${NEBULA_CONFIG_DIR}" 2>/dev/null || true
-        log "Restored config directory"
-    fi
-
-    log "Starting Nebula service..."
-    sudo systemctl start nebula_@@tun_device@@.service 2>/dev/null || true
-    sudo systemctl start nebula_@@tun_device@@-update.timer 2>/dev/null || true
-
-    log "Restore completed"
-}
-
 get_local_version() {
     if [[ -f "${LOCAL_VERSION_FILE}" ]]; then
         cat "${LOCAL_VERSION_FILE}" | tr -d '[:space:]'
@@ -218,6 +134,90 @@ download_package() {
 
     log "Package downloaded and extracted to: ${TEMP_DIR}" >&2
     echo "${TEMP_DIR}"
+}
+
+create_backup() {
+    rm -rf "${BACKUP_DIR}"
+    mkdir -p "${BACKUP_DIR}/config"
+    mkdir -p "${BACKUP_DIR}/etc/systemd/system"
+    mkdir -p "${BACKUP_DIR}/usr/lib/nebula"
+
+    for unit in nebula_@@tun_device@@.service nebula_@@tun_device@@-update.service nebula_@@tun_device@@-update.timer; do
+        if [[ -f "/etc/systemd/system/${unit}" ]]; then
+            cp -a "/etc/systemd/system/${unit}" "${BACKUP_DIR}/etc/systemd/system/" 2>/dev/null || true
+        fi
+    done
+
+    if [[ -f "${UPDATE_SCRIPT}" ]]; then
+        cp -a "${UPDATE_SCRIPT}" "${BACKUP_DIR}/usr/lib/nebula/" 2>/dev/null || true
+    fi
+
+    if [[ -f "${NEBULA_BINARY}" ]]; then
+        cp -a "${NEBULA_BINARY}" "${BACKUP_DIR}/usr/lib/nebula/" 2>/dev/null || true
+    else
+        log_warning "Nebula binary not found: ${NEBULA_BINARY}"
+    fi
+
+    if [[ -d "${NEBULA_CONFIG_DIR}" ]]; then
+        cp -a "${NEBULA_CONFIG_DIR}/"* "${BACKUP_DIR}/config/" 2>/dev/null || true
+    else
+        log_warning "Config directory not found: ${NEBULA_CONFIG_DIR}"
+    fi
+
+    log "Backup created at: ${BACKUP_DIR}"
+}
+
+restore_backup() {
+    log "Restoring from backup..."
+
+    if [[ ! -d "${BACKUP_DIR}" ]]; then
+        log_error "Backup directory not found: ${BACKUP_DIR}"
+        return 1
+    fi
+
+    log "Stopping Nebula service..."
+    sudo systemctl stop nebula_@@tun_device@@.service 2>/dev/null || true
+    sudo systemctl stop nebula_@@tun_device@@-update.timer 2>/dev/null || true
+
+    if [[ -d "${BACKUP_DIR}/etc/systemd/system" ]]; then
+        for unit in "${BACKUP_DIR}/etc/systemd/system"/*; do
+            if [[ -f "$unit" ]]; then
+                unit_name=$(basename "$unit")
+                cp -a "$unit" "/etc/systemd/system/"
+                log "Restored systemd unit: ${unit_name}"
+            fi
+        done
+        systemctl daemon-reload 2>/dev/null || true
+    fi
+
+    if [[ -f "${BACKUP_DIR}/usr/lib/nebula/@@tun_device@@-update.sh" ]]; then
+        cp -a "${BACKUP_DIR}/usr/lib/nebula/@@tun_device@@-update.sh" "${UPDATE_SCRIPT}"
+        chmod 740 "${UPDATE_SCRIPT}"
+        chown root:nebula "${UPDATE_SCRIPT}"
+        log "Restored update script"
+    fi
+
+    if [[ -f "${BACKUP_DIR}/usr/lib/nebula/nebula" ]]; then
+        cp -a "${BACKUP_DIR}/usr/lib/nebula/nebula" "${NEBULA_BINARY}"
+        chown nebula:nebula "${NEBULA_BINARY}" 2>/dev/null || true
+        chmod 750 "${NEBULA_BINARY}" 2>/dev/null || true
+        setcap cap_net_admin=+pe "${NEBULA_BINARY}" 2>/dev/null || true
+        log "Restored nebula binary"
+    fi
+
+    if [[ -d "${BACKUP_DIR}/config" ]]; then
+        rm -rf "${NEBULA_CONFIG_DIR}"
+        mkdir -p "${NEBULA_CONFIG_DIR}"
+        cp -a "${BACKUP_DIR}/config/"* "${NEBULA_CONFIG_DIR}/" 2>/dev/null || true
+        chown -R nebula:nebula "${NEBULA_CONFIG_DIR}" 2>/dev/null || true
+        log "Restored config directory"
+    fi
+
+    log "Starting Nebula service..."
+    sudo systemctl start nebula_@@tun_device@@.service 2>/dev/null || true
+    sudo systemctl start nebula_@@tun_device@@-update.timer 2>/dev/null || true
+
+    log "Restore completed"
 }
 
 apply_update() {
