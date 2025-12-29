@@ -8,7 +8,6 @@
 
 set -euo pipefail
 
-# Configuration
 EXEC_DIR="/usr/lib/nebula/@@tun_device@@"
 CONFIG_DIR="/etc/nebula/@@tun_device@@"
 SERVICE_DIR="/etc/systemd/system"
