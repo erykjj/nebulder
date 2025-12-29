@@ -60,12 +60,11 @@ cp -f host.* ca.crt config.yaml version node "${CONFIG_DIR}/" 2>/dev/null || {
     exit 1
 }
 
-if [[ -f "./deploy.sh" ]]; then
-    install -m 740 "./deploy.sh" "${EXEC_DIR}/deploy.sh"
+rm -f "${EXEC_DIR}/update.sh.old" 2>/dev/null || true
+if [[ -f "${EXEC_DIR}/update.sh" ]]; then
+    mv "${EXEC_DIR}/update.sh" "${EXEC_DIR}/update.sh.old" 2>/dev/null || true
 fi
-if [[ -f "./remove.sh" ]]; then
-    install -m 740 "./remove.sh" "${EXEC_DIR}/remove.sh"
-fi
+install -m 740 *.sh "${EXEC_DIR}/"
 
 if [[ -f "./update.conf" ]]; then
     cp -f ./update.conf "${CONFIG_DIR}/"
@@ -76,7 +75,7 @@ echo -e "\n* Configuring launchd services"
 if [[ -f "./nebula_@@tun_device@@.plist" ]]; then
     install -m 644 "./nebula_@@tun_device@@.plist" "${LAUNCH_DAEMONS_DIR}/"
     sudo launchctl bootstrap system "${LAUNCH_DAEMONS_DIR}/${SERVICE_NAME}.plist"
-    echo "Main service loaded."
+    echo "  Main service loaded."
 fi
 
 if [[ -f "./update.conf" ]]; then

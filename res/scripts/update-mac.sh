@@ -190,7 +190,6 @@ apply_update() {
         log_error "deploy.sh failed with exit code $?"
         return 1
     fi
-    log "Update applied successfully"
 }
 
 verify_update() {
@@ -262,17 +261,6 @@ perform_update() {
     fi
     if ! check_service; then
         log_warning "Service check failed, but update applied successfully"
-    fi
-    log "Replacing the update script with new version..."
-    NEW_SCRIPT="${temp_dir}/update.sh"
-    OLD_SCRIPT="${EXEC_DIR}/update.sh"
-    if [[ -f "${NEW_SCRIPT}" ]]; then
-        mv "${OLD_SCRIPT}" "${OLD_SCRIPT}.old" 2>/dev/null || true
-        cp "${NEW_SCRIPT}" "${OLD_SCRIPT}"
-        chmod 740 "${OLD_SCRIPT}"
-        log "Update script replaced."
-    else
-        log_warning "New update.sh not found in package, keeping current version."
     fi
     trim_log "/usr/local/var/log/nebula_@@tun_device@@.log"
     trim_log "/usr/local/var/log/nebula_@@tun_device@@-update.log"
