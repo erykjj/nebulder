@@ -6,7 +6,7 @@
     <string>nebula_@@tun_device@@-update</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/lib/nebula/@@tun_device@@-update.sh</string>
+        <string>/usr/local/lib/nebula/@@tun_device@@/update.sh</string>
     </array>
     <key>StartCalendarInterval</key>
     <array>
