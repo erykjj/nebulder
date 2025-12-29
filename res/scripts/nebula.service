@@ -8,7 +8,7 @@ Type=simple
 Restart=always
 RestartSec=1
 User=nebula
-ExecStart=/usr/lib/nebula/nebula -config /etc/nebula/@@tun_device@@/config.yaml
+ExecStart=/usr/lib/nebula/@@tun_device@@/nebula -config /etc/nebula/@@tun_device@@/config.yaml
 
 [Install]
 WantedBy=multi-user.target
