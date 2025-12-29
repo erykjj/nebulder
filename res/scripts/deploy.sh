@@ -31,8 +31,7 @@ if [[ -d "${CONFIG_DIR}" ]]; then
   echo "* Cleaning up previous settings"
   systemctl stop nebula_@@tun_device@@.service 2>/dev/null || true
   rm -rf "${CONFIG_DIR}"
-  rm -f "${EXEC_DIR}"/*.sh
-  echo -e "  Previous scripts & key/config files removed\n"
+  echo -e "  Previous key/config files removed\n"
 fi
 
 echo -e "* Installing nebula binary and scripts to ${EXEC_DIR}"
@@ -67,7 +66,7 @@ echo "* Putting key/config files in ${CONFIG_DIR}"
 cp -t "${CONFIG_DIR}" host.* ca.crt config.yaml version node
 echo "  Files copied"
 chown -R nebula:nebula "${CONFIG_DIR}"
-chmod 600 "${CONFIG_DIR}/host.*" "${CONFIG_DIR}/ca.crt"
+chmod 600 "${CONFIG_DIR}"/host.* "${CONFIG_DIR}/ca.crt"
 chmod 644 "${CONFIG_DIR}/config.yaml" "${CONFIG_DIR}/version" "${CONFIG_DIR}/node"
 echo -e "  Permissions set\n"
 
