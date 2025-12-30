@@ -9,6 +9,8 @@
 set -euo pipefail
 
 EXEC_DIR="/usr/local/lib/nebula/@@tun_device@@"
+NEBULA_BIN_SOURCE=""
+NEBULA_BIN_TARGET="${EXEC_DIR}/nebula"
 CONFIG_DIR="/usr/local/etc/nebula/@@tun_device@@"
 LAUNCH_DAEMONS_DIR="/Library/LaunchDaemons"
 SERVICE_NAME="nebula_@@tun_device@@"
@@ -20,17 +22,10 @@ if [[ "$(id -u)" != "0" ]]; then
     exit 1
 fi
 
-NEBULA_BIN_SOURCE=""
-NEBULA_BIN_TARGET="${EXEC_DIR}/nebula"
-
 echo "* Handling Nebula binary"
-
 if [[ -x "./nebula" ]]; then
     NEBULA_BIN_SOURCE="./nebula"
-elif [[ -x "./nebula-darwin" ]]; then
-    NEBULA_BIN_SOURCE="./nebula-darwin"
 fi
-
 if [[ -n "${NEBULA_BIN_SOURCE}" ]]; then
     mkdir -p "${EXEC_DIR}"
     install -m 755 "${NEBULA_BIN_SOURCE}" "${NEBULA_BIN_TARGET}"
@@ -43,13 +38,11 @@ else
         exit 1
     fi
 fi
-
 NEBULA_VERSION=$("${NEBULA_BIN_TARGET}" --version 2>/dev/null | grep -o "Version: [0-9.]*" | cut -d' ' -f2 || echo "unknown")
 echo "  Version: ${NEBULA_VERSION:-unknown}"
 
 echo -e "\n* Stopping and unloading services"
 sudo launchctl bootout system "${LAUNCH_DAEMONS_DIR}/${SERVICE_NAME}.plist" 2>/dev/null || true
-sleep 2
 
 echo -e "\n* Preparing directories"
 mkdir -p "${CONFIG_DIR}" "${EXEC_DIR}"
@@ -59,13 +52,7 @@ cp -f host.* ca.crt config.yaml version node "${CONFIG_DIR}/" 2>/dev/null || {
     echo "ERROR: Required config files missing."
     exit 1
 }
-
-rm -f "${EXEC_DIR}/update.sh.old" 2>/dev/null || true
-if [[ -f "${EXEC_DIR}/update.sh" ]]; then
-    mv "${EXEC_DIR}/update.sh" "${EXEC_DIR}/update.sh.old" 2>/dev/null || true
-fi
-install -m 740 *.sh "${EXEC_DIR}/"
-
+install -m 740 deploy.sh remove.sh "${EXEC_DIR}/" 2>/dev/null || true
 if [[ -f "./update.conf" ]]; then
     cp -f ./update.conf "${CONFIG_DIR}/"
     chmod 600 "${CONFIG_DIR}/update.conf"
@@ -75,14 +62,37 @@ echo -e "\n* Configuring launchd services"
 if [[ -f "./nebula_@@tun_device@@.plist" ]]; then
     install -m 644 "./nebula_@@tun_device@@.plist" "${LAUNCH_DAEMONS_DIR}/"
     sudo launchctl bootstrap system "${LAUNCH_DAEMONS_DIR}/${SERVICE_NAME}.plist"
-    echo "  Main service loaded."
+    echo "  Main service loaded"
+fi
+
+if [[ -f "./update.sh" ]]; then
+    rm -f "${EXEC_DIR}/update.sh.old" 2>/dev/null || true
+    if [[ -f "${EXEC_DIR}/update.sh.current" ]]; then
+        mv "${EXEC_DIR}/update.sh.current" "${EXEC_DIR}/update.sh.old" 2>/dev/null || true
+    fi
+    install -m 740 "./update.sh" "${EXEC_DIR}/update.sh.current"
+    ln -sf "update.sh.current" "${EXEC_DIR}/update.sh"
 fi
 
 if [[ -f "./update.conf" ]]; then
-    if [[ -f "./nebula_@@tun_device@@-update.plist" ]]; then
-        install -m 644 "./nebula_@@tun_device@@-update.plist" "${LAUNCH_DAEMONS_DIR}/"
+    if [[ -f "./nebula_nebula10-update.plist" ]]; then
+        install -m 644 "./nebula_nebula10-update.plist" "${LAUNCH_DAEMONS_DIR}/"
+        if launchctl list | grep -q "${SERVICE_NAME}-update"; then
+            echo "  Update service loaded"
+        else
+            if sudo launchctl bootstrap system "${LAUNCH_DAEMONS_DIR}/${SERVICE_NAME}-update.plist"; then
+                echo "  Update service loaded"
+            else
+                echo "  ERROR: Failed to load update service"
+                exit 1
+            fi
+        fi
     fi
 fi
 
-echo -e "\nDone."
+echo "* If the device is a lighthouse, you may also need to add a rule to your firewall"
+echo "  to allow traffic to the @@tun_device@@ network device port"
+
+echo -e "Done. If there were no errors, you can remove this deployment package\n"
+
 exit 0

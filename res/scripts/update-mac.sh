@@ -140,12 +140,10 @@ create_backup() {
 }
 
 restore_backup() {
-    log "Restoring from backup..."
     if [[ ! -d "${BACKUP_DIR}" ]]; then
         log_error "Backup directory not found: ${BACKUP_DIR}"
         return 1
     fi
-    log "Stopping main service..."
     sudo launchctl bootout system "/Library/LaunchDaemons/${SERVICE_NAME}.plist" 2>/dev/null || true
     sleep 2
     log "Restoring files from backup..."
@@ -186,8 +184,11 @@ apply_update() {
     fi
     chmod +x ./deploy.sh
     log "Running deploy.sh..."
-    if ! ./deploy.sh; then
-        log_error "deploy.sh failed with exit code $?"
+    if ./deploy.sh; then
+        log "deploy.sh completed successfully"
+    else
+        deploy_exit_code=$?
+        log_error "deploy.sh failed with exit code $deploy_exit_code"
         return 1
     fi
 }
@@ -197,7 +198,6 @@ verify_update() {
     local new_local_version
     local remote_version_again
     new_local_version=$(get_local_version)
-    log "Local version after update: ${new_local_version}"
     remote_version_again=$(get_remote_version "${UPDATE_SERVER}")
     if [[ "${remote_version_again}" == "NO_VERSION_FILE" ]]; then
         log_error "Could not verify remote version after update"
@@ -213,16 +213,6 @@ verify_update() {
         return 1
     fi
 
-}
-
-check_service() {
-    if launchctl list | grep -q "${SERVICE_NAME}"; then
-        log "Service ${SERVICE_NAME} is loaded"
-        return 0
-    else
-        log_error "Service ${SERVICE_NAME} is not loaded"
-        return 1
-    fi
 }
 
 trim_log() {
@@ -258,9 +248,6 @@ perform_update() {
         restore_backup
         rm -rf "${temp_dir}"
         return 1
-    fi
-    if ! check_service; then
-        log_warning "Service check failed, but update applied successfully"
     fi
     trim_log "/usr/local/var/log/nebula_@@tun_device@@.log"
     trim_log "/usr/local/var/log/nebula_@@tun_device@@-update.log"
