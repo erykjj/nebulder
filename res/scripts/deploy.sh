@@ -37,15 +37,9 @@ fi
 echo -e "* Installing nebula binary and scripts to ${EXEC_DIR}"
 id nebula >/dev/null 2>&1 || useradd -rM nebula
 mkdir -p "${EXEC_DIR}"
-install -m 740 *.sh "${EXEC_DIR}"
-chown root:nebula "${EXEC_DIR}"/*.sh
-chmod 750 "${EXEC_DIR}"
-mkdir -p "${CONFIG_DIR}"
-
+install -m 750 *.sh "${EXEC_DIR}"
 if [[ -x "nebula" ]]; then
   install -m 750 nebula "${EXEC_DIR}"
-  chown root:nebula "${EXEC_DIR}/nebula"
-  setcap cap_net_admin=+pe "${EXEC_DIR}/nebula" 2>/dev/null || true
   nebula_version=$(./nebula --version 2>/dev/null | grep -o "Version: [0-9.]*" | cut -d' ' -f2 || echo "unknown")
   echo "  Binary installed (version: ${nebula_version:-unknown})"
 else
@@ -54,14 +48,17 @@ else
     echo "  Using existing binary (version: ${nebula_version:-unknown})"
   fi
 fi
+chown -R root:nebula "/usr/lib/nebula"
+chmod -R 750 "/usr/lib/nebula"
+setcap cap_net_admin=+pe "${EXEC_DIR}/nebula" 2>/dev/null || true
 
+mkdir -p "${CONFIG_DIR}"
 if [[ -f "update.conf" ]]; then
   cp -t "${CONFIG_DIR}" update.conf
   chmod 600 "${CONFIG_DIR}/update.conf"
   cp "${SERVICE_NAME}-update.service" "${SERVICE_NAME}-update.timer" "${SERVICE_DIR}"
   echo -e "  Update script installed\n"
 fi
-
 echo "* Putting key/config files in ${CONFIG_DIR}"
 cp -t "${CONFIG_DIR}" host.* ca.crt config.yaml version node
 echo "  Files copied"
@@ -75,13 +72,11 @@ cp "${SERVICE_NAME}.service" "${SERVICE_DIR}"
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}.service" > /dev/null 2>&1
 systemctl start "${SERVICE_NAME}.service"
-
 if [[ -f "update.conf" ]]; then
   systemctl enable "${SERVICE_NAME}-update.service" > /dev/null 2>&1
   systemctl enable "${SERVICE_NAME}-update.timer" > /dev/null 2>&1
   systemctl start "${SERVICE_NAME}-update.timer"
 fi
-
 echo "  ${SERVICE_NAME}.service: $(systemctl is-active "${SERVICE_NAME}.service" 2>/dev/null || echo 'inactive')"
 if [[ -f "update.conf" ]]; then
   echo "  ${SERVICE_NAME}-update.timer: $(systemctl is-active "${SERVICE_NAME}-update.timer" 2>/dev/null || echo 'inactive')"
