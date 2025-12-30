@@ -91,7 +91,7 @@ if [[ -f "./update.conf" ]]; then
 fi
 
 echo -e "* If the device is a lighthouse, you may also need to adjust your firewall"
-echo "  to allow traffic to the @@tun_device@@ network device port"
+echo "  to allow traffic to the @@tun_device@@ network device port\n"
 
 echo -e "Done. If there were no errors, you can remove this deployment package\n"
 
