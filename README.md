@@ -1,10 +1,13 @@
-# nebulder
+# nebulder v2[^*]
 
-Prononced "NEH-byool-der" (/ˈnɛb.jʊl.dɚ/) - a composite of *Nebula* + *builder*
+Pronounced "NEH-byool-der" (/ˈnɛb.jʊl.dɚ/) - a composite of *Nebula* + *builder*
 
 ## Python script to "build" deployment packages for [Nebula](https://nebula.defined.net/docs) mesh/overlay networks
 
-The script has only been tested under Linux and the latest *nebula-cert* binary has to be in your path.
+The script has only been tested under Linux and the latest *nebula-cert* binary has to be in your path. It requires PyYAML: `pip install pyyaml`
+
+<details>
+<summary>[EXPAND] HOWTO</summary><br/>
 
 1. Define your mesh network by creating an 'outline' (config file in YAML format) listing all the nodes (including at least one lighthouse; the lighthouse has to have a public IP, so you may need to set up some port forwarding, dynamic DNS, etc.). See the [*sample_outline.yaml*](https://github.com/erykjj/nebulder/blob/main/res/sample_outline.yaml) for format layout and available attributes
 2. If you want to set up auto-updating (Linux, macOS, Windows), you will need to include a *update.conf* file ([*sample_update.conf*](https://github.com/erykjj/nebulder/blob/main/res/sample_update.conf))
@@ -24,13 +27,12 @@ The script has only been tested under Linux and the latest *nebula-cert* binary 
 7. If a device is to be used as a **lighthouse**, you may also have to tweak your system firewall to allow the UDP connections to get through to your network interface, and NAT port-forwarding on your router may also be required to let UDP through to the port your lighthouse is listening on
 8. If you set up auto-update, when you execute *nebulder.py* with `-z`, it will generate zipped deployment/update packages; copy these (along with the *version.txt*) file to your server
     - The update service on the nodes checks for updates every 15 min; if an update package for the node is there, it will download and deploy it; if you set up *ntfy.sh* notifications, you should get a confirmation message
+</details><br/>
 
 Keep in mind that (by design and by default) Nebula certificate authority keys expire in 1 year, and so do all the certificates signed with these keys. Within that period, you can re-use the *ca.key* to generate more devices/nodes, or update existing ones with new binaries. So, keep *ca.key* safe. To renew (i.e., generate new certificate authority keys), remove the *ca.key* and *ca.crt* files from the destination directory, re-run the `nebulder.py` script, and deploy again on every device; or, upload the update packages to your server for nodes with auto-update enabled to deploy themselves. Keep in mind that while deploying; the nebula service on the node goes down; also, if changing the certificate authority, there may be a lost connection until the node and lighthouse(s) are using the same updated certificate.
 
-____
-## Command-line usage
-
-Requires PyYAML: `pip install pyyaml`
+<details>
+<summary>[EXPAND] Command-line usage</summary><br/>
 
 ```
 usage: python3 nebulder.py [-h] [-v] [-o directory] [-z] [-V id] Outline
@@ -49,9 +51,14 @@ options:
 ```
 
 NOTE: `-V id` is optional; versioning is via an auto-incrementing *version.txt* file (starting at "v1.0.0" by default), or one can specify the version number/id
+</details><br/>
+
 ____
 ## Feedback
 
 Feel free to [get in touch and post any issues and suggestions](https://github.com/erykjj/nebulder/issues).
 
 [![RSS of releases](res/rss-36.png)](https://github.com/erykjj/nebulder/releases.atom)
+
+____
+[^*]: Due to changed paths, etc., if you are upgrading the nodes from v1, ensure you clean up their current installs first; otherwise, you may have conflicting services
