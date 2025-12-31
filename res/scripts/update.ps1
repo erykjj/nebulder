@@ -47,21 +47,21 @@ function Initialize-Logging {
 }
 
 function Write-Log {
-    param([string]$Message, [string]$Level = "INFO")
+    param([string]$Message, [string]$Level = "I")
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logEntry = "[$timestamp] [$Level] $Message"
     Add-Content -Path $LogFile -Value $logEntry -ErrorAction SilentlyContinue
     switch ($Level) {
-        "SUCCESS" { Write-Host $logEntry -ForegroundColor Green }
-        "WARNING" { Write-Host $logEntry -ForegroundColor Yellow }
-        "ERROR"   { Write-Host $logEntry -ForegroundColor Red }
+        "OK" { Write-Host $logEntry -ForegroundColor Green }
+        "W"  { Write-Host $logEntry -ForegroundColor Yellow }
+        "E"  { Write-Host $logEntry -ForegroundColor Red }
         default   { Write-Host $logEntry }
     }
 }
 
 function Read-Config {
     if (-not (Test-Path $ConfigFile)) {
-        Write-Log "Configuration file not found: $ConfigFile" -Level "ERROR"
+        Write-Log "Configuration file not found: $ConfigFile" -Level "E"
         throw "Missing configuration file"
     }
 
@@ -77,7 +77,7 @@ function Read-Config {
     $required = @("UPDATE_SERVER", "AUTH_USER", "AUTH_PASS")
     foreach ($key in $required) {
         if (-not $config.ContainsKey($key) -or [string]::IsNullOrEmpty($config[$key])) {
-            Write-Log "Missing required configuration: $key" -Level "ERROR"
+            Write-Log "Missing required configuration: $key" -Level "E"
             throw "Missing required configuration: $key"
         }
     }
@@ -139,45 +139,46 @@ function Step-CheckRemoteVersion {
 
         $response = Invoke-WebRequest -Uri $versionUrl -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
 
-        if ($response.StatusCode -eq 404) {
-            Write-Log "No version.txt on server" -Level "INFO"
-            $Global:REMOTE_VERSION = ""
+        if ($response.StatusCode -eq 200) {
+            $remoteVersion = $response.Content.Trim()
+            
+            if ([string]::IsNullOrEmpty($remoteVersion)) {
+                Write-Log "Empty version.txt on server" -Level "I"
+                $Global:REMOTE_VERSION = ""
+                return $true
+            }
+
+            $Global:REMOTE_VERSION = $remoteVersion
+            Write-Log "Remote version: $remoteVersion" -Level "I"
             return $true
         }
-        elseif ($response.StatusCode -ne 200) {
+        else {
             $Global:FAILURE_REASON = "SERVER_ERROR_$($response.StatusCode)"
-            Write-Log "HTTP error $($response.StatusCode) fetching remote version" -Level "ERROR"
+            Write-Log "HTTP error $($response.StatusCode) fetching remote version" -Level "E"
             return $false
         }
-
-        $remoteVersion = $response.Content.Trim()
-
-        if ([string]::IsNullOrEmpty($remoteVersion)) {
-            Write-Log "Empty version.txt on server" -Level "INFO"
+    }
+    catch [System.Net.WebException] {
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) {
             $Global:REMOTE_VERSION = ""
             return $true
         }
-
-        $Global:REMOTE_VERSION = $remoteVersion
-        Write-Log "Remote version: $remoteVersion" -Level "INFO"
-        return $true
-    }
-    catch [System.Net.WebException] {
-        if ($_.Exception.Response -and $_.Exception.Response.StatusCode -eq 401) {
+        elseif ($_.Exception.Response -and 
+                ($_.Exception.Response.StatusCode.value__ -eq 401 -or 
+                 $_.Exception.Response.StatusCode.value__ -eq 403)) {
             $Global:FAILURE_REASON = "AUTH_FAILED"
-            Write-Log "Authentication failed" -Level "ERROR"
-        } elseif ($_.Exception.Response -and $_.Exception.Response.StatusCode -eq 403) {
-            $Global:FAILURE_REASON = "AUTH_FAILED"
-            Write-Log "Authentication failed" -Level "ERROR"
-        } else {
-            $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
-            Write-Log "Update server unreachable" -Level "ERROR"
+            Write-Log "Authentication failed" -Level "E"
+            return $false
         }
-        return $false
+        else {
+            $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+            Write-Log "Update server unreachable or error: $($_.Exception.Message)" -Level "E"
+            return $false
+        }
     }
     catch {
         $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
-        Write-Log "Update server unreachable" -Level "ERROR"
+        Write-Log "Update server unreachable: $($_.Exception.Message)" -Level "E"
         return $false
     }
 }
@@ -186,7 +187,7 @@ function Step-ValidateNode {
     $nodeName = Get-NodeName
     if ([string]::IsNullOrEmpty($nodeName)) {
         $Global:FAILURE_REASON = "NODE_NAME_MISSING"
-        Write-Log "Node name file missing or empty" -Level "ERROR"
+        Write-Log "Node name file missing or empty" -Level "E"
 
         $configYaml = Join-Path $ScriptDir "config.yaml"
         if (Test-Path $configYaml) {
@@ -208,7 +209,7 @@ function Step-DownloadPackage {
 
     $packageName = "${Global:NODE_NAME}_${RemoteVersion}.zip"
     $packageUrl = "$Server/$packageName"
-    Write-Log "Downloading package: $packageName" -Level "INFO"
+    Write-Log "Downloading package: $packageName" -Level "I"
 
     if (Test-Path $DownloadDir) {
         Remove-Item -Path $DownloadDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -234,7 +235,7 @@ function Step-DownloadPackage {
     }
     catch {
         $Global:FAILURE_REASON = "INVALID_PACKAGE"
-        Write-Log "Missing or invalid package on server" -Level "ERROR"
+        Write-Log "Missing or invalid package on server" -Level "E"
         return $null
     }
 }
@@ -247,13 +248,13 @@ function Step-ValidateDeploymentPackage {
     $deployScript = Join-Path $PackageDir "deploy.ps1"
     if (-not (Test-Path $deployScript)) {
         $Global:FAILURE_REASON = "NO_DEPLOY_SCRIPT"
-        Write-Log "deploy.ps1 not found in package" -Level "ERROR"
+        Write-Log "deploy.ps1 not found in package" -Level "E"
         return $false
     }
 
     if (-not (Test-Path (Join-Path $PackageDir "config.yaml"))) {
         $Global:FAILURE_REASON = "MISSING_CONFIG"
-        Write-Log "config.yaml not found in package" -Level "ERROR"
+        Write-Log "config.yaml not found in package" -Level "E"
         return $false
     }
 
@@ -261,14 +262,14 @@ function Step-ValidateDeploymentPackage {
     $targetNebula = Test-Path (Join-Path $targetDir "nebula.exe")
     if (-not $packageNebula -and -not $targetNebula) {
         $Global:FAILURE_REASON = "MISSING_NEBULA"
-        Write-Log "nebula.exe not found in package OR target directory" -Level "ERROR"
+        Write-Log "nebula.exe not found in package OR target directory" -Level "E"
         return $false
     }
 
     $systemArch = Get-SystemArchitecture
     if (-not $systemArch) {
         $Global:FAILURE_REASON = "UNKNOWN_ARCHITECTURE"
-        Write-Log "Could not determine system architecture" -Level "ERROR"
+        Write-Log "Could not determine system architecture" -Level "E"
         return $false
     }
 
@@ -286,7 +287,7 @@ function Step-ValidateDeploymentPackage {
     }
     if (-not $packageWintun -and -not $targetWintun) {
         $Global:FAILURE_REASON = "MISSING_WINTUN"
-        Write-Log "wintun.dll ($systemArch) not found in package OR target directory" -Level "ERROR"
+        Write-Log "wintun.dll ($systemArch) not found in package OR target directory" -Level "E"
         return $false
     }
 
@@ -294,23 +295,41 @@ function Step-ValidateDeploymentPackage {
 }
 
 function Get-SystemArchitecture {
-    if ([Environment]::Is64BitOperatingSystem -and [Environment]::Is64BitProcess) {
-        $systemArch = "amd64"
-        try {
-            $envVar = [Environment]::GetEnvironmentVariable("PROCESSOR_ARCHITECTURE", "Machine")
-            if ($envVar -eq "ARM64") {
-                $systemArch = "arm64"
+    if (-not [Environment]::Is64BitOperatingSystem) {
+        Write-Error "32-bit Windows is not supported by Nebula"
+        return $null
+    }
+    try {
+        $envVar = [Environment]::GetEnvironmentVariable("PROCESSOR_ARCHITECTURE", "Machine")
+        
+        switch ($envVar) {
+            "ARM64" { return "arm64" }
+            "AMD64" { return "amd64" }
+            default {
+                Write-Error "Unsupported architecture: $envVar"
+                return $null
             }
         }
-        catch {}
-        return $systemArch
-    } else {
-        return "x86"
+    }
+    catch {
+        Write-Warning "Could not detect architecture via environment variable"
+        try {
+            $cpu = Get-ItemProperty -Path "HKLM:\HARDWARE\DESCRIPTION\System\CentralProcessor\0" -ErrorAction Stop
+            if ($cpu.Identifier -match "ARM") {
+                return "arm64"
+            } else {
+                return "amd64"
+            }
+        }
+        catch {
+            Write-Error "Failed to detect system architecture"
+            return $null
+        }
     }
 }
 
 function Step-CreateBackup {
-    Write-Log "Creating backup" -Level "INFO"
+    Write-Log "Creating backup" -Level "I"
 
     if (Test-Path $BackupDir) {
         Remove-Item -Path $BackupDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -334,7 +353,7 @@ function Step-CreateBackup {
     }
     catch {
         $Global:FAILURE_REASON = "BACKUP_FAILED"
-        Write-Log "Failed to create backup" -Level "ERROR"
+        Write-Log "Failed to create backup" -Level "E"
         return $false
     }
 }
@@ -346,22 +365,22 @@ function Step-ApplyUpdate {
 
     if (-not (Test-Path $deployScript)) {
         $Global:FAILURE_REASON = "NO_DEPLOY_SCRIPT"
-        Write-Log "deploy.ps1 not found in package" -Level "ERROR"
+        Write-Log "deploy.ps1 not found in package" -Level "E"
         return $false
     }
 
     try {
-        Write-Log "Running deploy.ps1..." -Level "INFO"
+        Write-Log "Running deployment script..." -Level "I"
         $deployOutput = & powershell.exe -ExecutionPolicy Bypass -File "$deployScript" 2>&1
 
         if ($deployOutput) {
             foreach ($line in $deployOutput) {
-                Write-Log "  $line" -Level "INFO"
+                Write-Log "  $line" -Level "I"
             }
         }
 
         if ($LASTEXITCODE -eq 0) {
-            Write-Log "Update applied" -Level "INFO"
+            Write-Log "Update applied" -Level "I"
             return $true
         } else {
             $errorPatterns = @{
@@ -385,13 +404,13 @@ function Step-ApplyUpdate {
                 $Global:FAILURE_REASON = "DEPLOY_FAILED"
             }
 
-            Write-Log "Deployment script failed with exit code: $LASTEXITCODE" -Level "ERROR"
+            Write-Log "Deployment script failed with exit code: $LASTEXITCODE" -Level "E"
             return $false
         }
     }
     catch {
         $Global:FAILURE_REASON = "DEPLOY_FAILED"
-        Write-Log "Failed to run deployment script: $_" -Level "ERROR"
+        Write-Log "Failed to run deployment script: $_" -Level "E"
         return $false
     }
 }
@@ -401,7 +420,7 @@ function Step-VerifyUpdate {
 
     if (-not (Test-Path $LocalVersionFile)) {
         $Global:FAILURE_REASON = "VERIFICATION_FAILED"
-        Write-Log "Version file not found after update" -Level "ERROR"
+        Write-Log "Version file not found after update" -Level "E"
         return $false
     }
 
@@ -410,11 +429,11 @@ function Step-VerifyUpdate {
 
     if ($newLocalVersion -ne $ExpectedVersion) {
         $Global:FAILURE_REASON = "VERIFICATION_FAILED"
-        Write-Log "Version mismatch after update" -Level "ERROR"
+        Write-Log "Version mismatch after update" -Level "E"
         return $false
     }
 
-    Write-Log "Update verified" -Level "INFO"
+    Write-Log "Update verified" -Level "I"
     return $true
 }
 
@@ -423,10 +442,10 @@ function Step-RestoreBackup {
         return $true
     }
 
-    Write-Log "Restoring from backup" -Level "WARNING"
+    Write-Log "Restoring from backup" -Level "W"
 
     if (-not (Test-Path $BackupDir)) {
-        Write-Log "Backup directory not found" -Level "ERROR"
+        Write-Log "Backup directory not found" -Level "E"
         return $false
     }
 
@@ -441,7 +460,7 @@ function Step-RestoreBackup {
             Copy-Item -Path $_.FullName -Destination $destination -Force -ErrorAction SilentlyContinue
         }
 
-        Write-Log "Files restored from backup" -Level "INFO"
+        Write-Log "Files restored from backup" -Level "I"
 
         if (Test-Path $NebulaBinary) {
             Start-Process -FilePath $NebulaBinary -ArgumentList "-service start" -NoNewWindow -Wait -ErrorAction SilentlyContinue | Out-Null
@@ -450,7 +469,7 @@ function Step-RestoreBackup {
         return $true
     }
     catch {
-        Write-Log "Failed to restore backup" -Level "ERROR"
+        Write-Log "Failed to restore backup" -Level "E"
         return $false
     }
 }
@@ -461,20 +480,20 @@ function Step-CheckService {
         $service = Get-Service -Name "Nebula" -ErrorAction SilentlyContinue
         if ($service) {
             if ($service.Status -eq "Running") {
-                Write-Log "Nebula service is running" -Level "SUCCESS"
+                Write-Log "Nebula service is running" -Level "OK"
                 return $true
             } else {
-                Write-Log "Nebula service exists but is $($service.Status)" -Level "WARNING"
-                Write-Log "Service may need manual start or configuration check" -Level "WARNING"
+                Write-Log "Nebula service exists but is $($service.Status)" -Level "W"
+                Write-Log "Service may need manual start or configuration check" -Level "W"
                 return $false
             }
         } else {
-            Write-Log "Nebula service not found - check installation" -Level "WARNING"
+            Write-Log "Nebula service not found - check installation" -Level "W"
             return $false
         }
     }
     catch {
-        Write-Log "Could not check Nebula service status" -Level "WARNING"
+        Write-Log "Could not check Nebula service status" -Level "W"
         return $false
     }
 }
@@ -521,7 +540,7 @@ function Report-Result {
         Set-Content -Path $StatusFile -Value $statusJson -ErrorAction SilentlyContinue
     }
     catch {
-        Write-Log "WARNING: Could not write status file" -Level "WARNING"
+        Write-Log "WARNING: Could not write status file" -Level "W"
     }
 
     if ($config.ContainsKey("NTFY_CHANNEL") -and -not [string]::IsNullOrEmpty($config.NTFY_CHANNEL)) {
@@ -569,7 +588,7 @@ function Report-Result {
             }
         }
         catch {
-            Write-Log "WARNING: Failed to send ntfy.sh notification" -Level "WARNING"
+            Write-Log "WARNING: Failed to send ntfy.sh notification" -Level "W"
         }
     }
 }
@@ -590,29 +609,29 @@ try {
     # Step 1: Check remote version
     if (-not (Step-CheckRemoteVersion -Server $config.UPDATE_SERVER -User $config.AUTH_USER -Pass $config.AUTH_PASS)) {
         Report-Result -ResultCode 2
-        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
         exit 2
     }
 
     # Check if update needed
     if ([string]::IsNullOrEmpty($Global:REMOTE_VERSION)) {
-        Write-Log "No update available (no version.txt on server)" -Level "INFO"
+        Write-Log "No update available (no version.txt on server)" -Level "I"
         Report-Result -ResultCode 1
         exit 1
     }
 
     if ($Global:OLD_VERSION -eq $Global:REMOTE_VERSION) {
-        Write-Log "Already at version $($Global:OLD_VERSION)" -Level "INFO"
+        Write-Log "Already at version $($Global:OLD_VERSION)" -Level "I"
         Report-Result -ResultCode 1
         exit 1
     }
 
-    Write-Log "Updating: $($Global:OLD_VERSION) to $($Global:REMOTE_VERSION)" -Level "INFO"
+    Write-Log "Updating: $($Global:OLD_VERSION) to $($Global:REMOTE_VERSION)" -Level "I"
 
     # Step 2: Validate node name
     if (-not (Step-ValidateNode)) {
         Report-Result -ResultCode 2
-        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
         exit 2
     }
 
@@ -620,13 +639,13 @@ try {
     $packageDir = Step-DownloadPackage -Server $config.UPDATE_SERVER -User $config.AUTH_USER -Pass $config.AUTH_PASS -RemoteVersion $Global:REMOTE_VERSION
     if (-not $packageDir) {
         Report-Result -ResultCode 2
-        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
         exit 2
     }
 
     if (-not (Step-ValidateDeploymentPackage -PackageDir $packageDir)) {
         Report-Result -ResultCode 2
-        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
         Cleanup-Temp
         exit 2
     }
@@ -635,7 +654,7 @@ try {
     if (-not (Step-CreateBackup)) {
         Cleanup-Temp
         Report-Result -ResultCode 2
-        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
         exit 2
     }
 
@@ -644,7 +663,7 @@ try {
         Step-RestoreBackup
         Cleanup-Temp
         Report-Result -ResultCode 2
-        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
         exit 2
     }
 
@@ -653,25 +672,25 @@ try {
         Step-RestoreBackup
         Cleanup-Temp
         Report-Result -ResultCode 2
-        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
         exit 2
     }
 
     # Step 7: Check service (warning only)
     $serviceCheck = Step-CheckService
     if (-not $serviceCheck) {
-        Write-Log "Service check warning - verify Nebula service manually" -Level "WARNING"
+        Write-Log "Service check warning - verify Nebula service manually" -Level "W"
     }
 
     # Success
     Cleanup-Temp
 
-    Write-Log "Update completed" -Level "SUCCESS"
+    Write-Log "Update completed" -Level "OK"
     Report-Result -ResultCode 0
     exit 0
 }
 catch {
-    Write-Log "UPDATE FAILED: $_" -Level "ERROR"
+    Write-Log "UPDATE FAILED: $_" -Level "E"
 
     try {
         Report-Result -ResultCode 2
