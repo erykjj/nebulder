@@ -15,7 +15,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw "Run as Administrator"
 }
 
-Write-Log "Nebula Removal"
+Write-Log "Nebula Removal Script"
 Write-Log "Target: $InstallDir"
 
 $taskName = "Nebula-@@tun_device@@ Auto-Update"
@@ -24,7 +24,6 @@ try {
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if ($task) {
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-        Write-Log "Scheduled task removed"
     } else {}
 }
 catch {}
@@ -35,7 +34,6 @@ $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
 if ($service) {
 
     if ($service.Status -eq 'Running') {
-        Write-Log "Stopping service"
         $nebulaExe = Join-Path $InstallDir "nebula.exe"
         if (Test-Path $nebulaExe) {
             & $nebulaExe -service stop 2>&1 | Out-Null
@@ -45,7 +43,6 @@ if ($service) {
         Start-Sleep -Seconds 3
     }
 
-    Write-Log "Uninstalling service"
     if (Test-Path $nebulaExe) {
         & $nebulaExe -service uninstall 2>&1 | Out-Null
     } else {
@@ -60,17 +57,4 @@ if ($service) {
     }
 }
 
-Set-Location -Path "C:\"
-
-Write-Log "Deleting directory: $InstallDir"
-if (Test-Path $InstallDir) {
-    try {
-        Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction Stop
-        Write-Log "Directory deleted"
-    }
-    catch {
-        Write-Log "Could not delete directory"
-    }
-}
-
-Write-Log "Removal completed"
+Write-Log "Done. If there were no errors, you can remove this script/deployment package"
