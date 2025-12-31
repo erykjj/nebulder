@@ -4,11 +4,12 @@
 
 ### Added
 
-- *Auto-update functionality* with own server
+- **Auto-update functionality** with own server
 
 ### Changed
 
-- Major rewrite of node scripts
+- **Major rewrite** of node scripts
+- Better macOS support
 
 ### Fixed
 
