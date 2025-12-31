@@ -4,6 +4,9 @@
 # MIT License: Copyright (c) 2026 Eryk J.
 # ============================================================================
 
+# ----------------------------------------------------------------------------
+# Configuration and Paths
+# ----------------------------------------------------------------------------
 $ScriptDir = $PSScriptRoot
 if ([string]::IsNullOrEmpty($ScriptDir)) {
     $ScriptDir = Get-Location
@@ -18,15 +21,28 @@ $LogFile = Join-Path $ScriptDir "update.log"
 $StatusFile = Join-Path $ScriptDir "update-status.json"
 $NebulaBinary = Join-Path $ScriptDir "nebula.exe"
 
-$ErrorActionPreference = "Stop"
+# ----------------------------------------------------------------------------
+# Global State
+# ----------------------------------------------------------------------------
+$Global:FAILURE_REASON = ""
+$Global:NODE_NAME = ""
+$Global:REMOTE_VERSION = ""
+$Global:OLD_VERSION = ""
+$Global:BACKUP_CREATED = $false
 
-$MaxLogSize = 1MB
-if (Test-Path $LogFile) {
-    $log = Get-Item $LogFile
-    if ($log.Length -gt $MaxLogSize) {
-        $oldLog = Join-Path $ScriptDir "update.log.old"
-        Rename-Item -Path $LogFile -NewName $oldLog -Force
-        Write-Log "INFO: Rotated log file"
+# ----------------------------------------------------------------------------
+# Core Functions (Critical - throw on failure)
+# ----------------------------------------------------------------------------
+
+function Initialize-Logging {
+    $MaxLogSize = 1MB
+    if (Test-Path $LogFile) {
+        $log = Get-Item $LogFile
+        if ($log.Length -gt $MaxLogSize) {
+            $oldLog = Join-Path $ScriptDir "update.log.old"
+            Rename-Item -Path $LogFile -NewName $oldLog -Force
+            Write-Log "INFO: Rotated log file"
+        }
     }
 }
 
@@ -69,6 +85,10 @@ function Read-Config {
     return $config
 }
 
+# ----------------------------------------------------------------------------
+# Helper Functions
+# ----------------------------------------------------------------------------
+
 function Get-LocalVersion {
     if (Test-Path $LocalVersionFile) {
         return (Get-Content $LocalVersionFile -Raw).Trim()
@@ -81,47 +101,6 @@ function Get-NodeName {
     if (Test-Path $LocalNodeFile) {
         return (Get-Content $LocalNodeFile -Raw).Trim()
     } else {
-        return $env:COMPUTERNAME
-    }
-}
-
-function Get-RemoteVersion {
-    param([string]$Server, [string]$User, [string]$Pass)
-
-    $versionUrl = "$Server/version.txt"
-
-    try {
-        $credential = [System.Convert]::ToBase64String(
-            [System.Text.Encoding]::ASCII.GetBytes("${User}:${Pass}")
-        )
-
-        $headers = @{ "Authorization" = "Basic $credential" }
-
-        $response = Invoke-WebRequest -Uri $versionUrl -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
-        
-
-        if ($response.StatusCode -eq 404) {
-            return $null
-        }
-        elseif ($response.StatusCode -ne 200) {
-            Write-Log "HTTP error $($response.StatusCode) fetching remote version" -Level "ERROR"
-            return $null
-        }
-
-        $remoteVersion = $response.Content.Trim()
-
-        if ([string]::IsNullOrEmpty($remoteVersion)) {
-            Write-Log "Empty version.txt on server" -Level "INFO"
-            return $null
-        }
-
-        Write-Log "Remote version: $remoteVersion" -Level "INFO"
-        return $remoteVersion
-    }
-    catch [System.Net.WebException] {
-        return $null
-    }
-    catch {
         return $null
     }
 }
@@ -142,28 +121,129 @@ function Get-NebulaVersion {
     return "unknown"
 }
 
-function Check-Update {
-    param(
-        [string]$LocalVersion,
-        [string]$RemoteVersion
-    )
+# ----------------------------------------------------------------------------
+# Update Steps
+# ----------------------------------------------------------------------------
 
-    if ([string]::IsNullOrEmpty($RemoteVersion)) {
-        Write-Log "Remote version unavailable (server may have no updates)" -Level "INFO"
-        return $false, "NO_VERSION_FILE"
+function Step-CheckRemoteVersion {
+    param([string]$Server, [string]$User, [string]$Pass)
+
+    $versionUrl = "$Server/version.txt"
+
+    try {
+        $credential = [System.Convert]::ToBase64String(
+            [System.Text.Encoding]::ASCII.GetBytes("${User}:${Pass}")
+        )
+
+        $headers = @{ "Authorization" = "Basic $credential" }
+
+        $response = Invoke-WebRequest -Uri $versionUrl -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
+
+        if ($response.StatusCode -eq 404) {
+            Write-Log "No version.txt on server" -Level "INFO"
+            $Global:REMOTE_VERSION = ""
+            return $true
+        }
+        elseif ($response.StatusCode -ne 200) {
+            $Global:FAILURE_REASON = "SERVER_ERROR_$($response.StatusCode)"
+            Write-Log "HTTP error $($response.StatusCode) fetching remote version" -Level "ERROR"
+            return $false
+        }
+
+        $remoteVersion = $response.Content.Trim()
+
+        if ([string]::IsNullOrEmpty($remoteVersion)) {
+            Write-Log "Empty version.txt on server" -Level "INFO"
+            $Global:REMOTE_VERSION = ""
+            return $true
+        }
+
+        $Global:REMOTE_VERSION = $remoteVersion
+        Write-Log "Remote version: $remoteVersion" -Level "INFO"
+        return $true
     }
-
-    if ($LocalVersion -eq $RemoteVersion) {
-        Write-Log "No update needed (already on $LocalVersion)" -Level "INFO"
-        return $false, "NO_UPDATE"
+    catch [System.Net.WebException] {
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode -eq 401) {
+            $Global:FAILURE_REASON = "AUTH_FAILED"
+            Write-Log "Authentication failed" -Level "ERROR"
+        } elseif ($_.Exception.Response -and $_.Exception.Response.StatusCode -eq 403) {
+            $Global:FAILURE_REASON = "AUTH_FAILED"
+            Write-Log "Authentication failed" -Level "ERROR"
+        } else {
+            $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+            Write-Log "Update server unreachable" -Level "ERROR"
+        }
+        return $false
     }
-
-    Write-Log "Update available: $LocalVersion -> $RemoteVersion" -Level "INFO"
-    return $true, "UPDATE_AVAILABLE"
+    catch {
+        $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+        Write-Log "Update server unreachable" -Level "ERROR"
+        return $false
+    }
 }
 
-function Create-Backup {
-    Write-Log "Creating backup"
+function Step-ValidateNode {
+    $nodeName = Get-NodeName
+    if ([string]::IsNullOrEmpty($nodeName)) {
+        $Global:FAILURE_REASON = "NODE_NAME_MISSING"
+        Write-Log "Node name file missing or empty" -Level "ERROR"
+
+        $configYaml = Join-Path $ScriptDir "config.yaml"
+        if (Test-Path $configYaml) {
+            $firstLine = Get-Content $configYaml -First 1 -ErrorAction SilentlyContinue
+            if ($firstLine -and $firstLine.StartsWith("#")) {
+                $Global:FAILURE_REASON = "NODE_NAME_MISSING ($firstLine)"
+            }
+        }
+
+        return $false
+    }
+
+    $Global:NODE_NAME = $nodeName
+    return $true
+}
+
+function Step-DownloadPackage {
+    param([string]$Server, [string]$User, [string]$Pass, [string]$RemoteVersion)
+
+    $packageName = "${Global:NODE_NAME}_${RemoteVersion}.zip"
+    $packageUrl = "$Server/$packageName"
+    Write-Log "Downloading package: $packageName" -Level "INFO"
+
+    if (Test-Path $DownloadDir) {
+        Remove-Item -Path $DownloadDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    try {
+        New-Item -ItemType Directory -Path $DownloadDir -Force | Out-Null
+
+        $credential = [System.Convert]::ToBase64String(
+            [System.Text.Encoding]::ASCII.GetBytes("${User}:${Pass}")
+        )
+
+        $headers = @{ "Authorization" = "Basic $credential" }
+        $zipPath = Join-Path $DownloadDir $packageName
+
+        # Download the file
+        Invoke-WebRequest -Uri $packageUrl -Headers $headers -OutFile $zipPath -TimeoutSec 30 -ErrorAction Stop -UseBasicParsing
+
+        # Try to extract
+        Expand-Archive -Path $zipPath -DestinationPath $DownloadDir -Force -ErrorAction Stop
+        
+        Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
+
+        return $DownloadDir
+    }
+    catch {
+        # One generic error for all download/extraction failures
+        $Global:FAILURE_REASON = "INVALID_PACKAGE"
+        Write-Log "Missing or invalid package on server" -Level "ERROR"
+        return $null
+    }
+}
+
+function Step-CreateBackup {
+    Write-Log "Creating backup" -Level "INFO"
 
     if (Test-Path $BackupDir) {
         Remove-Item -Path $BackupDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -182,63 +262,29 @@ function Create-Backup {
             Copy-Item -Path $_.FullName -Destination $BackupDir -Force -ErrorAction SilentlyContinue
         }
 
+        $Global:BACKUP_CREATED = $true
         return $true
     }
     catch {
+        $Global:FAILURE_REASON = "BACKUP_FAILED"
         Write-Log "Failed to create backup" -Level "ERROR"
         return $false
     }
 }
 
-function Download-Package {
-    param([string]$Server, [string]$User, [string]$Pass, [string]$RemoteVersion, [string]$NodeName)
-
-    $packageName = "${NodeName}_${RemoteVersion}.zip"
-    $packageUrl = "$Server/$packageName"
-    Write-Log "Downloading package: $packageName"
-
-    if (Test-Path $DownloadDir) {
-        Remove-Item -Path $DownloadDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
-
-    try {
-        New-Item -ItemType Directory -Path $DownloadDir -Force | Out-Null
-
-        $credential = [System.Convert]::ToBase64String(
-            [System.Text.Encoding]::ASCII.GetBytes("${User}:${Pass}")
-        )
-
-        $headers = @{ "Authorization" = "Basic $credential" }
-        $zipPath = Join-Path $DownloadDir $packageName
-
-        Invoke-WebRequest -Uri $packageUrl -Headers $headers -OutFile $zipPath -TimeoutSec 30 -ErrorAction Stop -UseBasicParsing
-
-        Expand-Archive -Path $zipPath -DestinationPath $DownloadDir -Force -ErrorAction Stop
-        Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
-
-        return $DownloadDir
-    }
-    catch [System.Net.WebException] {
-        Write-Log "Network error downloading package" -Level "ERROR"
-        return $null
-    }
-    catch {
-        Write-Log "Error downloading package" -Level "ERROR"
-        return $null
-    }
-}
-
-function Apply-Update {
+function Step-ApplyUpdate {
     param([string]$PackageDir)
 
     $deployScript = Join-Path $PackageDir "deploy.ps1"
 
     if (-not (Test-Path $deployScript)) {
-        Write-Log "ERROR: deploy.ps1 not found in package" -Level "ERROR"
+        $Global:FAILURE_REASON = "NO_DEPLOY_SCRIPT"
+        Write-Log "deploy.ps1 not found in package" -Level "ERROR"
         return $false
     }
 
     try {
+        Write-Log "Running deploy.ps1..." -Level "INFO"
         $deployOutput = & powershell.exe -ExecutionPolicy Bypass -File "$deployScript" 2>&1
 
         if ($deployOutput) {
@@ -248,48 +294,48 @@ function Apply-Update {
         }
 
         if ($LASTEXITCODE -eq 0) {
+            Write-Log "Update applied" -Level "INFO"
             return $true
         } else {
+            $Global:FAILURE_REASON = "DEPLOY_FAILED"
             Write-Log "Deployment script failed with exit code: $LASTEXITCODE" -Level "ERROR"
             return $false
         }
     }
     catch {
+        $Global:FAILURE_REASON = "DEPLOY_FAILED"
         Write-Log "Failed to run deployment script: $_" -Level "ERROR"
         return $false
     }
 }
 
-function Verify-Update {
+function Step-VerifyUpdate {
     param([string]$ExpectedVersion)
 
     if (-not (Test-Path $LocalVersionFile)) {
+        $Global:FAILURE_REASON = "VERIFICATION_FAILED"
         Write-Log "Version file not found after update" -Level "ERROR"
         return $false
     }
 
+    Start-Sleep -Seconds 1
     $newLocalVersion = (Get-Content $LocalVersionFile -Raw).Trim()
 
     if ($newLocalVersion -ne $ExpectedVersion) {
+        $Global:FAILURE_REASON = "VERIFICATION_FAILED"
         Write-Log "Version mismatch after update" -Level "ERROR"
         return $false
     }
 
-    $nebulaVersion = Get-NebulaVersion
-    Write-Log "Nebula binary version: $nebulaVersion"
-
-    try {
-        $service = Get-Service -Name "Nebula" -ErrorAction SilentlyContinue
-        if ($service -and $service.Status -eq "Running") {
-            Write-Log "Nebula service is running" -Level "SUCCESS"
-        }
-    }
-    catch {}
-
+    Write-Log "Update verified" -Level "INFO"
     return $true
 }
 
-function Restore-Backup {
+function Step-RestoreBackup {
+    if (-not $Global:BACKUP_CREATED) {
+        return $true
+    }
+
     Write-Log "Restoring from backup" -Level "WARNING"
 
     if (-not (Test-Path $BackupDir)) {
@@ -308,7 +354,7 @@ function Restore-Backup {
             Copy-Item -Path $_.FullName -Destination $destination -Force -ErrorAction SilentlyContinue
         }
 
-        Write-Log "Files restored from backup"
+        Write-Log "Files restored from backup" -Level "INFO"
 
         if (Test-Path $NebulaBinary) {
             Start-Process -FilePath $NebulaBinary -ArgumentList "-service start" -NoNewWindow -Wait -ErrorAction SilentlyContinue | Out-Null
@@ -322,79 +368,35 @@ function Restore-Backup {
     }
 }
 
-function Report-Result {
-    param(
-        [int]$ResultCode,
-        [string]$OldVersion,
-        [string]$NewVersion,
-        [string]$Message = ""
-    )
-
-    $nodeName = Get-NodeName
-    $nebulaVersion = Get-NebulaVersion
-
-    switch ($ResultCode) {
-        0 { $resultText = "updated" }
-        1 { $resultText = "no_update" }
-        2 { $resultText = "error" }
-        default { $resultText = "unknown" }
-    }
-
-    if ($ResultCode -eq 0 -or $ResultCode -eq 2) {
-
-        $status = @{
-            node = $nodeName
-            result = $resultText
-            previous = $OldVersion
-            current = $NewVersion
-            nebula = $nebulaVersion
-            timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
-        }
-
-        try {
-            $statusJson = $status | ConvertTo-Json
-            Set-Content -Path $StatusFile -Value $statusJson -ErrorAction SilentlyContinue
-        }
-        catch {
-            Write-Log "WARNING: Could not write status file" -Level "WARNING"
-        }
-
-        if ($config.ContainsKey("NTFY_CHANNEL") -and -not [string]::IsNullOrEmpty($config.NTFY_CHANNEL)) {
-            try {
-                $channel = $config.NTFY_CHANNEL.Trim()
-                if (-not [string]::IsNullOrEmpty($channel)) {
-                    $ntfyUrl = "https://ntfy.sh/$channel"
-                    $title = "$nodeName @ @@tun_device@@"
-
-                    switch ($ResultCode) {
-                        0 { # SUCCESS
-                            $tags = "white_check_mark"
-                            $priority = 3
-                            $body = "Updated from $OldVersion --> $NewVersion`nNebula version: $nebulaVersion"
-                        }
-                        2 { # ERROR
-                            $tags = "warning"
-                            $priority = 4
-                            $body = "ERROR on update from $OldVersion --> $NewVersion`nNebula version: $nebulaVersion"
-                            if (-not [string]::IsNullOrEmpty($Message)) {
-                                $body += "`nError: $Message"
-                            }
-                        }
-                    }
-
-                    Invoke-RestMethod -Uri $ntfyUrl -Method Post -Body $body `
-                        -Headers @{ Title = $title; Tags = $tags; Priority = $priority } `
-                        -ErrorAction SilentlyContinue | Out-Null
-                }
+function Step-CheckService {
+    try {
+        Start-Sleep -Seconds 3
+        
+        $service = Get-Service -Name "Nebula" -ErrorAction SilentlyContinue
+        
+        if ($service) {
+            if ($service.Status -eq "Running") {
+                Write-Log "Nebula service is running" -Level "SUCCESS"
+                return $true
+            } else {
+                Write-Log "Nebula service exists but is $($service.Status)" -Level "WARNING"
+                Write-Log "Service may need manual start or configuration check" -Level "WARNING"
+                return $false
             }
-            catch {
-                Write-Log "WARNING: Failed to send ntfy.sh notification" -Level "WARNING"
-            }
+        } else {
+            Write-Log "Nebula service not found - check installation" -Level "WARNING"
+            return $false
         }
     }
-
-    return $ResultCode
+    catch {
+        Write-Log "Could not check Nebula service status" -Level "WARNING"
+        return $false
+    }
 }
+
+# ----------------------------------------------------------------------------
+# Cleanup and Reporting
+# ----------------------------------------------------------------------------
 
 function Cleanup-Temp {
     if (Test-Path $BackupDir) {
@@ -406,66 +408,172 @@ function Cleanup-Temp {
     }
 }
 
+function Report-Result {
+    param([int]$ResultCode)
+
+    $nodeName = if ($Global:NODE_NAME) { $Global:NODE_NAME } else { "UNKNOWN" }
+    $nebulaVersion = Get-NebulaVersion
+
+    switch ($ResultCode) {
+        0 { $resultText = "updated" }
+        1 { $resultText = "no_update" }
+        2 { $resultText = "error" }
+        default { $resultText = "unknown" }
+    }
+
+    $status = @{
+        node = $nodeName
+        result = $resultText
+        previous = $Global:OLD_VERSION
+        current = $Global:REMOTE_VERSION
+        nebula = $nebulaVersion
+        failure_reason = $Global:FAILURE_REASON
+        timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
+    }
+
+    try {
+        $statusJson = $status | ConvertTo-Json
+        Set-Content -Path $StatusFile -Value $statusJson -ErrorAction SilentlyContinue
+    }
+    catch {
+        Write-Log "WARNING: Could not write status file" -Level "WARNING"
+    }
+
+    if ($config.ContainsKey("NTFY_CHANNEL") -and -not [string]::IsNullOrEmpty($config.NTFY_CHANNEL)) {
+        try {
+            $channel = $config.NTFY_CHANNEL.Trim()
+            if (-not [string]::IsNullOrEmpty($channel)) {
+                $ntfyUrl = "https://ntfy.sh/$channel"
+                $title = "$nodeName @ @@tun_device@@"
+
+                switch ($ResultCode) {
+                    0 { # SUCCESS
+                        $tags = "white_check_mark"
+                        $priority = 3
+                        $body = "Updated from $($Global:OLD_VERSION) --> $($Global:REMOTE_VERSION)`nNebula version: $nebulaVersion"
+                    }
+                    2 { # ERROR
+                        $tags = "warning"
+                        $priority = 4
+                        if ($Global:REMOTE_VERSION) {
+                            $body = "Update to $($Global:REMOTE_VERSION) FAILED"
+                        } else {
+                            $body = "Update FAILED"
+                        }
+                        $body += "`nReason: $($Global:FAILURE_REASON)"
+                        $body += "`nNebula: $nebulaVersion"
+                    }
+                }
+
+                if ($body) {
+                    Invoke-RestMethod -Uri $ntfyUrl -Method Post -Body $body `
+                        -Headers @{ Title = $title; Tags = $tags; Priority = $priority } `
+                        -ErrorAction SilentlyContinue | Out-Null
+                }
+            }
+        }
+        catch {
+            Write-Log "WARNING: Failed to send ntfy.sh notification" -Level "WARNING"
+        }
+    }
+
+    # return $ResultCode
+}
+
+# ----------------------------------------------------------------------------
+# Main Control Flow
+# ----------------------------------------------------------------------------
+
 try {
+    # Initialize
+    Initialize-Logging
     Write-Log "Nebula Auto-Update for Windows"
 
+    # Core initialization
     $config = Read-Config
-    $oldVersion = Get-LocalVersion
-    $nodeName = Get-NodeName
+    $Global:OLD_VERSION = Get-LocalVersion
 
-    $remoteVersion = Get-RemoteVersion -Server $config.UPDATE_SERVER -User $config.AUTH_USER -Pass $config.AUTH_PASS
-    $updateNeeded, $updateStatus = Check-Update -LocalVersion $oldVersion -RemoteVersion $remoteVersion
-
-    if (-not $updateNeeded) {
-        if ($updateStatus -eq "NO_VERSION_FILE") {
-            exit 1
-        } elseif ($updateStatus -eq "ERROR_FETCH") {
-            Write-Log "Update check failed" -Level "ERROR"
-            Report-Result -ResultCode 2 -OldVersion $oldVersion -NewVersion $remoteVersion -Message "Failed to fetch remote version"
-            exit 2
-        } else {
-            Report-Result -ResultCode 1 -OldVersion $oldVersion -NewVersion $oldVersion
-            exit 1
-        }
+    # Step 1: Check remote version
+    if (-not (Step-CheckRemoteVersion -Server $config.UPDATE_SERVER -User $config.AUTH_USER -Pass $config.AUTH_PASS)) {
+        Report-Result -ResultCode 2
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        exit 2
     }
 
-    $packageDir = Download-Package -Server $config.UPDATE_SERVER -User $config.AUTH_USER -Pass $config.AUTH_PASS -RemoteVersion $remoteVersion -NodeName $nodeName
+    # Check if update needed
+    if ([string]::IsNullOrEmpty($Global:REMOTE_VERSION)) {
+        Write-Log "No update available (no version.txt on server)" -Level "INFO"
+        Report-Result -ResultCode 1
+        exit 1
+    }
+
+    if ($Global:OLD_VERSION -eq $Global:REMOTE_VERSION) {
+        Write-Log "Already at version $($Global:OLD_VERSION)" -Level "INFO"
+        Report-Result -ResultCode 1
+        exit 1
+    }
+
+    Write-Log "Updating: $($Global:OLD_VERSION) to $($Global:REMOTE_VERSION)" -Level "INFO"
+
+    # Step 2: Validate node name
+    if (-not (Step-ValidateNode)) {
+        Report-Result -ResultCode 2
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        exit 2
+    }
+
+    # Step 3: Download package
+    $packageDir = Step-DownloadPackage -Server $config.UPDATE_SERVER -User $config.AUTH_USER -Pass $config.AUTH_PASS -RemoteVersion $Global:REMOTE_VERSION
     if (-not $packageDir) {
-        Write-Log "Download failed, no backup needed" -Level "ERROR"
-        throw "Failed to download update package"
+        Report-Result -ResultCode 2
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        exit 2
     }
 
-    if (-not (Create-Backup)) {
-        if (Test-Path $DownloadDir) {
-            Remove-Item -Path $DownloadDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-        throw "Failed to create backup, aborting update"
+    # Step 4: Create backup
+    if (-not (Step-CreateBackup)) {
+        Cleanup-Temp
+        Report-Result -ResultCode 2
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        exit 2
     }
 
-    if (-not (Apply-Update -PackageDir $packageDir)) {
-        Write-Log "Update application failed, restoring backup..." -Level "ERROR"
-        Restore-Backup
-        throw "Failed to apply update"
+    # Step 5: Apply update
+    if (-not (Step-ApplyUpdate -PackageDir $packageDir)) {
+        Step-RestoreBackup
+        Cleanup-Temp
+        Report-Result -ResultCode 2
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        exit 2
     }
 
-    if (-not (Verify-Update -ExpectedVersion $remoteVersion)) {
-        Write-Log "Update verification failed, restoring backup..." -Level "ERROR"
-        Restore-Backup
-        throw "Update verification failed"
+    # Step 6: Verify update
+    if (-not (Step-VerifyUpdate -ExpectedVersion $Global:REMOTE_VERSION)) {
+        Step-RestoreBackup
+        Cleanup-Temp
+        Report-Result -ResultCode 2
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        exit 2
     }
 
+    # Step 7: Check service (warning only)
+    $serviceCheck = Step-CheckService
+    if (-not $serviceCheck) {
+        Write-Log "Service check warning - verify Nebula service manually" -Level "WARNING"
+    }
+
+    # Success
     Cleanup-Temp
 
-    Write-Log "Update completed: $oldVersion -> $remoteVersion" -Level "SUCCESS"
-
-    Report-Result -ResultCode 0 -OldVersion $oldVersion -NewVersion $remoteVersion
+    Write-Log "Update completed" -Level "SUCCESS"
+    Report-Result -ResultCode 0
     exit 0
 }
 catch {
     Write-Log "UPDATE FAILED: $_" -Level "ERROR"
 
     try {
-        Report-Result -ResultCode 2 -OldVersion $oldVersion -NewVersion $remoteVersion -Message $_.Exception.Message
+        Report-Result -ResultCode 2
     }
     catch {}
 
