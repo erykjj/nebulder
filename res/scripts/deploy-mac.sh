@@ -93,6 +93,6 @@ fi
 echo -e "* If the device is a lighthouse, you may also need to adjust your firewall"
 echo "  to allow traffic to the @@tun_device@@ network device port\n"
 
-echo -e "Done. If there were no errors, you can remove this deployment package\n"
+echo -e "\nDone. If there were no errors, you can remove this deployment package\n"
 
 exit 0

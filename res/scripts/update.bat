@@ -21,19 +21,9 @@ if not exist "update.ps1" (
     exit /b 2
 )
 
-echo ========================================
-echo nebulder auto-update
-echo Directory: %SCRIPT_DIR%
-echo ========================================
-
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "update.ps1"
 
 set "EXIT_CODE=%errorlevel%"
-
-echo ========================================
-echo Update script completed
-echo Exit code: %EXIT_CODE%
-echo ========================================
 
 endlocal
 exit /b %EXIT_CODE%

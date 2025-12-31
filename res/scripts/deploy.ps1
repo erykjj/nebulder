@@ -15,6 +15,46 @@ function Test-Admin {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Get-SystemArchitecture {
+    if (-not [Environment]::Is64BitOperatingSystem) {
+        Write-Error "32-bit Windows is not supported by Nebula"
+        return $null
+    }
+    try {
+        $envVar = [Environment]::GetEnvironmentVariable("PROCESSOR_ARCHITECTURE", "Machine")
+        
+        switch ($envVar) {
+            "ARM64" { return "arm64" }
+            "AMD64" { return "amd64" }
+            default {
+                Write-Error "Unsupported architecture: $envVar"
+                return $null
+            }
+        }
+    }
+    catch {
+        Write-Warning "Could not detect architecture via environment variable"
+        try {
+            $cpu = Get-ItemProperty -Path "HKLM:\HARDWARE\DESCRIPTION\System\CentralProcessor\0" -ErrorAction Stop
+            if ($cpu.Identifier -match "ARM") {
+                return "arm64"
+            } else {
+                return "amd64"
+            }
+        }
+        catch {
+            Write-Error "Failed to detect system architecture"
+            return $null
+        }
+    }
+}
+
+function Test-WintunExists {
+    param([string]$BasePath, [string]$Architecture)
+    $wintunPath = "$BasePath\dist\windows\wintun\bin\$Architecture\wintun.dll"
+    return Test-Path $wintunPath
+}
+
 function Uninstall-NebulaService {
     $serviceName = "Nebula"
     $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
@@ -62,6 +102,17 @@ function Get-NebulaVersion {
     return "unknown"
 }
 
+function Remove-ScheduledTask {
+    $taskName = "Nebula-@@tun_device@@ Auto-Update"
+    try {
+        $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if ($task) {
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+        }
+    }
+    catch {}
+}
+
 function Create-ScheduledTask {
     $updateBatPath = "$TargetPath\update.bat"
     $updatePs1Path = "$TargetPath\update.ps1"
@@ -84,13 +135,13 @@ function Create-ScheduledTask {
                     -DontStopIfGoingOnBatteries `
                     -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
                     -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-    
+
     try {
         $task = Register-ScheduledTask -TaskName $taskName `
                     -Action $action -Trigger $trigger `
                     -Principal $principal -Settings $settings `
                     -Force -ErrorAction Stop
-        
+
         Write-Log "Started scheduled task: $taskName"
         return $true
     }
@@ -98,17 +149,6 @@ function Create-ScheduledTask {
         Write-Log "Failed to create scheduled task: $taskName"
         return $false
     }
-}
-
-function Remove-ScheduledTask {
-    $taskName = "Nebula-@@tun_device@@ Auto-Update"
-    try {
-        $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-        if ($task) {
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-        }
-    }
-    catch {}
 }
 
 try {
@@ -122,18 +162,34 @@ try {
         New-Item -ItemType Directory -Path $TargetPath -Force | Out-Null
     }
 
+    $systemArch = Get-SystemArchitecture
+    if (-not $systemArch -or @("arm64", "amd64") -notcontains $systemArch) {
+        throw "UNSUPPORTED_ARCHITECTURE: System architecture '$systemArch' is not supported. Nebula requires 64-bit Windows (amd64 or arm64)"
+    }
+
     $SourceDir = $PSScriptRoot
     $sourceNebula = Test-Path "$SourceDir\nebula.exe"
     $targetNebula = Test-Path "$TargetPath\nebula.exe"
-
     if (-not $sourceNebula -and -not $targetNebula) {
-        throw "nebula.exe not found in source package ($SourceDir) OR target directory ($TargetPath)"
+        throw "MISSING_NEBULA: nebula.exe not found in source package ($SourceDir) OR target directory ($TargetPath)"
+    }
+
+    $sourceWintun = Test-WintunExists -BasePath $SourceDir -Architecture $systemArch
+    $targetWintun = Test-WintunExists -BasePath $TargetPath -Architecture $systemArch
+    if (-not $sourceWintun -and -not $targetWintun) {
+        throw "MISSING_WINTUN: wintun.dll ($systemArch) not found in source package ($SourceDir) OR target directory ($TargetPath)"
     }
 
     if ($sourceNebula) {
         Write-Log "Using nebula.exe from deployment package"
     } else {
         Write-Log "Using existing nebula.exe"
+    }
+
+    if ($sourceWintun) {
+        Write-Log "Using wintun.dll ($systemArch) from deployment package"
+    } else {
+        Write-Log "Using existing wintun.dll ($systemArch)"
     }
 
     if (-not (Test-Path "$SourceDir\config.yaml")) {
@@ -144,16 +200,7 @@ try {
 
     Write-Log "Copying files"
 
-    Get-ChildItem -Path $SourceDir -Recurse | ForEach-Object {
-        $relativePath = $_.FullName.Substring($SourceDir.Length + 1)
-        $destination = Join-Path $TargetPath $relativePath
-
-        if ($_.PSIsContainer) {
-            New-Item -ItemType Directory -Path $destination -Force | Out-Null
-        } else {
-            Copy-Item -Path $_.FullName -Destination $destination -Force
-        }
-    }
+    Copy-Item -Path "$SourceDir\*" -Destination $TargetPath -Recurse -Force
 
     if (Test-Path "$TargetPath\node") {
         $node = (Get-Content "$TargetPath\node" -Raw).Trim()
@@ -180,7 +227,6 @@ try {
     exit 0
 }
 catch {
-    Write-Host "ERROR: $_" -ForegroundColor Red
     Write-Log "ERROR: $_"
     Write-Log "Deployment failed"
     exit 1
