@@ -141,8 +141,10 @@ def zip_package(archive_name):
         return
     zip_path = root_path / f"{archive_name}_{args['V']}.zip"
     with ZipFile(zip_path, 'w', compression=ZIP_DEFLATED) as zip_file:
-        for file in package_path.iterdir():
-            zip_file.write(str(file), file.name)
+        for file_path in package_path.rglob('*'):
+            if file_path.is_file():
+                arcname = file_path.relative_to(package_path)
+                zip_file.write(str(file_path), str(arcname))
 
 def process_firewall(firewall_rules):
     processed = []
