@@ -224,21 +224,88 @@ function Step-DownloadPackage {
         $headers = @{ "Authorization" = "Basic $credential" }
         $zipPath = Join-Path $DownloadDir $packageName
 
-        # Download the file
         Invoke-WebRequest -Uri $packageUrl -Headers $headers -OutFile $zipPath -TimeoutSec 30 -ErrorAction Stop -UseBasicParsing
 
-        # Try to extract
         Expand-Archive -Path $zipPath -DestinationPath $DownloadDir -Force -ErrorAction Stop
-        
+
         Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
 
         return $DownloadDir
     }
     catch {
-        # One generic error for all download/extraction failures
         $Global:FAILURE_REASON = "INVALID_PACKAGE"
         Write-Log "Missing or invalid package on server" -Level "ERROR"
         return $null
+    }
+}
+
+function Step-ValidateDeploymentPackage {
+    param([string]$PackageDir)
+
+    $targetDir = "C:\nebula\@@tun_device@@"
+
+    $deployScript = Join-Path $PackageDir "deploy.ps1"
+    if (-not (Test-Path $deployScript)) {
+        $Global:FAILURE_REASON = "NO_DEPLOY_SCRIPT"
+        Write-Log "deploy.ps1 not found in package" -Level "ERROR"
+        return $false
+    }
+
+    if (-not (Test-Path (Join-Path $PackageDir "config.yaml"))) {
+        $Global:FAILURE_REASON = "MISSING_CONFIG"
+        Write-Log "config.yaml not found in package" -Level "ERROR"
+        return $false
+    }
+
+    $packageNebula = Test-Path (Join-Path $PackageDir "nebula.exe")
+    $targetNebula = Test-Path (Join-Path $targetDir "nebula.exe")
+    if (-not $packageNebula -and -not $targetNebula) {
+        $Global:FAILURE_REASON = "MISSING_NEBULA"
+        Write-Log "nebula.exe not found in package OR target directory" -Level "ERROR"
+        return $false
+    }
+
+    $systemArch = Get-SystemArchitecture
+    if (-not $systemArch) {
+        $Global:FAILURE_REASON = "UNKNOWN_ARCHITECTURE"
+        Write-Log "Could not determine system architecture" -Level "ERROR"
+        return $false
+    }
+
+    $packageWintun = $false
+    $targetWintun = $false
+    $packageWintunPath = Join-Path $PackageDir "dist\windows\wintun\bin\$systemArch\wintun.dll"
+    if (Test-Path $packageWintunPath) {
+        $packageWintun = $true
+    }
+    if (-not $packageWintun) {
+        $targetWintunPath = Join-Path $targetDir "dist\windows\wintun\bin\$systemArch\wintun.dll"
+        if (Test-Path $targetWintunPath) {
+            $targetWintun = $true
+        }
+    }
+    if (-not $packageWintun -and -not $targetWintun) {
+        $Global:FAILURE_REASON = "MISSING_WINTUN"
+        Write-Log "wintun.dll ($systemArch) not found in package OR target directory" -Level "ERROR"
+        return $false
+    }
+
+    return $true
+}
+
+function Get-SystemArchitecture {
+    if ([Environment]::Is64BitOperatingSystem -and [Environment]::Is64BitProcess) {
+        $systemArch = "amd64"
+        try {
+            $envVar = [Environment]::GetEnvironmentVariable("PROCESSOR_ARCHITECTURE", "Machine")
+            if ($envVar -eq "ARM64") {
+                $systemArch = "arm64"
+            }
+        }
+        catch {}
+        return $systemArch
+    } else {
+        return "x86"
     }
 }
 
@@ -297,7 +364,27 @@ function Step-ApplyUpdate {
             Write-Log "Update applied" -Level "INFO"
             return $true
         } else {
-            $Global:FAILURE_REASON = "DEPLOY_FAILED"
+            $errorPatterns = @{
+                "MISSING_NEBULA:" = "MISSING_NEBULA"
+                "MISSING_WINTUN:" = "MISSING_WINTUN"
+                "WRONG_WINTUN_ARCH:" = "WRONG_WINTUN_ARCH"
+                "config.yaml not found" = "MISSING_CONFIG"
+            }
+
+            foreach ($line in $deployOutput) {
+                foreach ($pattern in $errorPatterns.Keys) {
+                    if ($line -like "*$pattern*") {
+                        $Global:FAILURE_REASON = $errorPatterns[$pattern]
+                        break
+                    }
+                }
+                if ($Global:FAILURE_REASON) { break }
+            }
+
+            if (-not $Global:FAILURE_REASON) {
+                $Global:FAILURE_REASON = "DEPLOY_FAILED"
+            }
+
             Write-Log "Deployment script failed with exit code: $LASTEXITCODE" -Level "ERROR"
             return $false
         }
@@ -371,9 +458,7 @@ function Step-RestoreBackup {
 function Step-CheckService {
     try {
         Start-Sleep -Seconds 3
-        
         $service = Get-Service -Name "Nebula" -ErrorAction SilentlyContinue
-        
         if ($service) {
             if ($service.Status -eq "Running") {
                 Write-Log "Nebula service is running" -Level "SUCCESS"
@@ -447,12 +532,12 @@ function Report-Result {
                 $title = "$nodeName @ @@tun_device@@"
 
                 switch ($ResultCode) {
-                    0 { # SUCCESS
+                    0 {  # SUCCESS
                         $tags = "white_check_mark"
                         $priority = 3
                         $body = "Updated from $($Global:OLD_VERSION) --> $($Global:REMOTE_VERSION)`nNebula version: $nebulaVersion"
                     }
-                    2 { # ERROR
+                    2 {  # ERROR
                         $tags = "warning"
                         $priority = 4
                         if ($Global:REMOTE_VERSION) {
@@ -460,7 +545,18 @@ function Report-Result {
                         } else {
                             $body = "Update FAILED"
                         }
+
                         $body += "`nReason: $($Global:FAILURE_REASON)"
+
+                        switch -Wildcard ($Global:FAILURE_REASON) {
+                            "*MISSING_NEBULA*" { $body += " (Missing nebula.exe binary)" }
+                            "*MISSING_WINTUN*" { $body += " (Missing wintun.dll driver)" }
+                            "*WRONG_WINTUN_ARCH*" { $body += " (Wrong architecture wintun.dll)" }
+                            "*MISSING_CONFIG*" { $body += " (Missing config.yaml)" }
+                            "*NODE_NAME_MISSING*" { $body += " (Missing node name file)" }
+                            "*INVALID_PACKAGE*" { $body += " (Missing or invalid package)" }
+                        }
+
                         $body += "`nNebula: $nebulaVersion"
                     }
                 }
@@ -476,8 +572,6 @@ function Report-Result {
             Write-Log "WARNING: Failed to send ntfy.sh notification" -Level "WARNING"
         }
     }
-
-    # return $ResultCode
 }
 
 # ----------------------------------------------------------------------------
@@ -527,6 +621,13 @@ try {
     if (-not $packageDir) {
         Report-Result -ResultCode 2
         Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        exit 2
+    }
+
+    if (-not (Step-ValidateDeploymentPackage -PackageDir $packageDir)) {
+        Report-Result -ResultCode 2
+        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "ERROR"
+        Cleanup-Temp
         exit 2
     }
 
