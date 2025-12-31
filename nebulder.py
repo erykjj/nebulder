@@ -30,7 +30,7 @@ APP = 'nebulder'
 VERSION = 'v2.0.0'
 
 
-import argparse, json, re, shutil, yaml
+import argparse, ipaddress, json, re, shutil, yaml
 from copy import deepcopy
 from pathlib import Path
 from subprocess import run, PIPE
@@ -284,16 +284,101 @@ def load_resources():
             scripts_dict[script_file.name] = f.read()
     return base_config, scripts_dict
 
+def validate_names_and_ips(mesh):
+
+    def validate_device_name(name, device_type):
+        if not name:
+            print(f"*** ERROR: {device_type} missing 'name' field!")
+            exit(1)
+        if not re.match(r'^[a-zA-Z0-9_\-]+$', name):
+            print(f"*** ERROR: Invalid {device_type} name '{name}'!")
+            print("   Must contain only letters, numbers, hyphens, and underscores")
+            exit(1)
+        if name in used_names:
+            print(f"*** ERROR: Duplicate name '{name}'!")
+            print("   All device names must be unique")
+            exit(1)
+        used_names.add(name)
+        return name
+    
+    def process_device(device, device_type, index):
+        device_name = validate_device_name(device.get('name'), f"{device_type} {index}")
+        nebula_ip = device.get('nebula_ip')
+        if not nebula_ip:
+            print(f"*** ERROR: {device_type} '{device_name}' missing 'nebula_ip'!")
+            exit(1)
+        try:
+            ip_obj = ipaddress.IPv4Address(nebula_ip)
+            if not ip_obj.is_private:
+                print(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' is not a private IP!")
+                print("   Must be in ranges: 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16")
+                exit(1)
+            last_octet = int(nebula_ip.split('.')[-1])
+            if last_octet == 0 or last_octet == 255:
+                print(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' may be network or broadcast address!")
+                print("   Avoid .0 or .255 as last octet for /24 networks")
+                exit(1)
+            return device_name, nebula_ip, ipaddress.IPv4Network(f"{nebula_ip}/24", strict=False)
+        except (ipaddress.AddressValueError, ValueError) as e:
+            print(f"*** ERROR: {device_type} '{device_name}' has invalid IP '{nebula_ip}': {e}")
+            exit(1)
+
+    tun_device = mesh.get('tun_device')
+    if not tun_device:
+        print("*** ERROR: Missing 'tun_device' in mesh configuration!!")
+        exit(1)
+    if not re.match(r'^[a-zA-Z0-9_\-]+$', tun_device):
+        print(f"*** ERROR: Invalid tun_device name '{tun_device}'!")
+        print("   Must contain only letters, numbers, hyphens, and underscores")
+        exit(1)
+    if tun_device.startswith('-') or tun_device.endswith('-'):
+        print(f"*** ERROR: Invalid tun_device name '{tun_device}'!")
+        print("   Cannot start or end with hyphen")
+        exit(1)
+    used_names = set()
+    all_ips = []
+    networks = []
+    if 'lighthouses' not in mesh or not mesh['lighthouses']:
+        print("*** ERROR: At least one lighthouse is required!")
+        exit(1)
+    for i, lighthouse in enumerate(mesh['lighthouses']):
+        _, ip, network = process_device(lighthouse, "Lighthouse", i+1)
+        all_ips.append(ip)
+        networks.append(network)
+    if 'nodes' in mesh:
+        for i, node in enumerate(mesh['nodes']):
+            _, ip, network = process_device(node, "Node", i+1)
+            all_ips.append(ip)
+            networks.append(network)
+    if len(set(all_ips)) != len(all_ips):
+        print("*** ERROR: Duplicate IP addresses found!")
+        print("   All devices must have unique IP addresses")
+        exit(1)
+    network_base = networks[0] if networks else None
+    for i, network in enumerate(networks):
+        if network != network_base:
+            device_type = "Lighthouse" if i < len(mesh['lighthouses']) else "Node"
+            index = i+1 if i < len(mesh['lighthouses']) else i - len(mesh['lighthouses']) + 1
+            print(f"*** ERROR: {device_type} {index} IP is not in the same /24 network!")
+            print(f"   All devices must be in {network_base} network")
+            exit(1)
+    return tun_device, network_base, all_ips
+
 def process_config(config_path, output_dir):
     global mesh, root_path, conf_path, base_config, scripts, is_new, relays, lighthouse_ips
     with open(config_path) as f:
         mesh = yaml.load(f, Loader=yaml.loader.SafeLoader)
-    if 'tun_device' not in mesh:
-        print("*** ERROR: Missing 'tun_device' in mesh configuration!!\n")
-        exit()
+    tun_device, network_base, all_ips = validate_names_and_ips(mesh)
     root_path = Path(output_dir) / mesh['tun_device']
     conf_path = Path(output_dir)
     root_path.mkdir(exist_ok=True)
+    print()
+    print('='*75)
+    print('nebulder - a builder script for Nebula mesh networks')
+    print('='*75)
+    print(f'\nMesh network: {tun_device}')
+    print(f'IP network: {network_base}')
+    print(f'Total devices: {len(all_ips)}\n')
     if not args['V']:
         args['V'] = get_version(root_path)
     version_file = root_path / 'version.txt'
@@ -307,7 +392,9 @@ def process_config(config_path, output_dir):
     lighthouse_ips = []
     process_lighthouses()
     process_nodes()
-    print(f'\nCompleted successfully\n   See output in {root_path}\n')
+    print(f'\nCompleted successfully\n   See output in {root_path}')
+    print('='*75)
+    print()
 
 
 parser = argparse.ArgumentParser(description="Generate Nebula configs based on a network outline")
