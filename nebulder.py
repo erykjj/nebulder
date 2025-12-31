@@ -61,7 +61,7 @@ def generate_certificate_authority():
     ca_key = conf_path / f"{mesh['tun_device']}_ca.private.key"
     print(f"Certificate authority for '{mesh['tun_device']}'")
     if ca_crt.exists() and ca_key.exists():
-        print(f"   Key already exists - expires: {cert_date(ca_crt)}\n   Skipping key generation")
+        print(f'   Key already exists - expires: {cert_date(ca_crt)}\n   Skipping key generation')
         return False
     else:
         run(['nebula-cert', 'ca', '-name', mesh['tun_device'], 
@@ -70,11 +70,15 @@ def generate_certificate_authority():
         ca_qr = conf_path / f"{mesh['tun_device']}_ca.qr"
         run(['nebula-cert', 'print', '-path', str(ca_crt),
              '-out-qr', str(ca_qr)], stdout=PIPE, check=True)
-        print(f"   Certificate expires: {cert_date(ca_crt)}")
+        print(f'   Certificate expires: {cert_date(ca_crt)}')
         return True
 
-def copy_files(dest_path, device, op_sys):
-    print(f"\nProcessing device '{device['name']}' ({op_sys})")
+def copy_files(dest_path, device, op_sys, lighthouse=False):
+    if lighthouse:
+        d = 'lighthouse'
+    else:
+        d = 'node'
+    print(f"\nProcessing {d} '{device['name']}' ({op_sys})")
     dest_path.mkdir(exist_ok=True)
     update_conf = conf_path / 'update.conf'
     if update_conf.exists():
@@ -114,7 +118,7 @@ def copy_files(dest_path, device, op_sys):
             host_crt.unlink(missing_ok=True)
             host_key.unlink(missing_ok=True)
         else:
-            print(f"   Certificate already exists - expires: {cert_date(host_crt)}\n   Skipping key generation\n   Added config.yaml")
+            print(f'   Certificate already exists - expires: {cert_date(host_crt)}\n   Skipping key generation\n   Added config.yaml')
             return
     ca_crt_path = conf_path / f"{mesh['tun_device']}_ca.crt"
     ca_key_path = conf_path / f"{mesh['tun_device']}_ca.private.key"
@@ -131,7 +135,7 @@ def copy_files(dest_path, device, op_sys):
         host_qr = dest_path / 'host.qr'
         run(['nebula-cert', 'print', '-path', str(host_crt), '-out-qr', str(host_qr)], 
             stdout=PIPE, check=True)
-    print(f"   Added config.yaml and key files\n   Certificate expires: {cert_date(host_crt)}")
+    print(f'   Added config.yaml and key files\n   Certificate expires: {cert_date(host_crt)}')
 
 def zip_package(archive_name):
     package_path = root_path / archive_name
@@ -197,20 +201,20 @@ def create_device_config(dest_path, device_type, device_name, op_sys, device_ip,
 
 def process_lighthouses():
     if 'lighthouses' not in mesh:
-        print('*** ERROR: No lighthouse defined!!\n')
+        print('*** ERROR: No lighthouse defined!\n')
         exit()
     for i, lighthouse in enumerate(mesh['lighthouses']):
         if 'name' not in lighthouse:
-            print(f"*** ERROR: Lighthouse {i+1} missing 'name' field!!\n")
+            print(f"*** ERROR: Lighthouse {i+1} missing 'name' field!\n")
             exit()
         if 'nebula_ip' not in lighthouse:
-            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'nebula_ip' field!!\n")
+            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'nebula_ip' field!\n")
             exit()
         if 'public_ip' not in lighthouse:
-            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'public_ip' field!!\n")
+            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'public_ip' field!\n")
             exit()
         if 'listen_port' not in lighthouse:
-            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'listen_port' field!!\n")
+            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'listen_port' field!\n")
             exit()
     for lighthouse in mesh['lighthouses']:
         host_map = []
@@ -222,7 +226,7 @@ def process_lighthouses():
     for lighthouse in mesh['lighthouses']:
         path = root_path / f"lighthouse_{lighthouse['name']}"
         op_sys = lighthouse.get('os', 'linux')
-        copy_files(path, lighthouse, op_sys)
+        copy_files(path, lighthouse, op_sys, True)
         lighthouse_ips.append(lighthouse['nebula_ip'])
         conf = deepcopy(base_config)
         conf = add_common_config(lighthouse, conf)
@@ -247,10 +251,10 @@ def process_nodes():
         return
     for i, node in enumerate(mesh['nodes']):
         if 'name' not in node:
-            print(f"*** ERROR: Node {i+1} missing 'name' field!!\n")
+            print(f"*** ERROR: Node {i+1} missing 'name' field!\n")
             exit()
         if 'nebula_ip' not in node:
-            print(f"*** ERROR: Node '{node['name']}' missing 'nebula_ip' field!!\n")
+            print(f"*** ERROR: Node '{node['name']}' missing 'nebula_ip' field!\n")
             exit()
     for node in mesh['nodes']:
         path = root_path / f"node_{node['name']}"
@@ -292,17 +296,17 @@ def validate_names_and_ips(mesh):
             exit(1)
         if not re.match(r'^[a-zA-Z0-9_\-]+$', name):
             print(f"*** ERROR: Invalid {device_type} name '{name}'!")
-            print("   Must contain only letters, numbers, hyphens, and underscores")
+            print('   Must contain only letters, numbers, hyphens, and underscores')
             exit(1)
         if name in used_names:
             print(f"*** ERROR: Duplicate name '{name}'!")
-            print("   All device names must be unique")
+            print('   All device names must be unique')
             exit(1)
         used_names.add(name)
         return name
     
     def process_device(device, device_type, index):
-        device_name = validate_device_name(device.get('name'), f"{device_type} {index}")
+        device_name = validate_device_name(device.get('name'), f'{device_type} {index}')
         nebula_ip = device.get('nebula_ip')
         if not nebula_ip:
             print(f"*** ERROR: {device_type} '{device_name}' missing 'nebula_ip'!")
@@ -311,56 +315,56 @@ def validate_names_and_ips(mesh):
             ip_obj = ipaddress.IPv4Address(nebula_ip)
             if not ip_obj.is_private:
                 print(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' is not a private IP!")
-                print("   Must be in ranges: 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16")
+                print('   Must be in ranges: 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16')
                 exit(1)
             last_octet = int(nebula_ip.split('.')[-1])
             if last_octet == 0 or last_octet == 255:
                 print(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' may be network or broadcast address!")
-                print("   Avoid .0 or .255 as last octet for /24 networks")
+                print('   Avoid .0 or .255 as last octet for /24 networks')
                 exit(1)
-            return device_name, nebula_ip, ipaddress.IPv4Network(f"{nebula_ip}/24", strict=False)
+            return device_name, nebula_ip, ipaddress.IPv4Network(f'{nebula_ip}/24', strict=False)
         except (ipaddress.AddressValueError, ValueError) as e:
             print(f"*** ERROR: {device_type} '{device_name}' has invalid IP '{nebula_ip}': {e}")
             exit(1)
 
     tun_device = mesh.get('tun_device')
     if not tun_device:
-        print("*** ERROR: Missing 'tun_device' in mesh configuration!!")
+        print("*** ERROR: Missing 'tun_device' in mesh configuration!")
         exit(1)
     if not re.match(r'^[a-zA-Z0-9_\-]+$', tun_device):
         print(f"*** ERROR: Invalid tun_device name '{tun_device}'!")
-        print("   Must contain only letters, numbers, hyphens, and underscores")
+        print('   Must contain only letters, numbers, hyphens, and underscores')
         exit(1)
     if tun_device.startswith('-') or tun_device.endswith('-'):
         print(f"*** ERROR: Invalid tun_device name '{tun_device}'!")
-        print("   Cannot start or end with hyphen")
+        print('   Cannot start or end with hyphen')
         exit(1)
     used_names = set()
     all_ips = []
     networks = []
     if 'lighthouses' not in mesh or not mesh['lighthouses']:
-        print("*** ERROR: At least one lighthouse is required!")
+        print('*** ERROR: At least one lighthouse is required!')
         exit(1)
     for i, lighthouse in enumerate(mesh['lighthouses']):
-        _, ip, network = process_device(lighthouse, "Lighthouse", i+1)
+        _, ip, network = process_device(lighthouse, 'Lighthouse', i+1)
         all_ips.append(ip)
         networks.append(network)
     if 'nodes' in mesh:
         for i, node in enumerate(mesh['nodes']):
-            _, ip, network = process_device(node, "Node", i+1)
+            _, ip, network = process_device(node, 'Node', i+1)
             all_ips.append(ip)
             networks.append(network)
     if len(set(all_ips)) != len(all_ips):
-        print("*** ERROR: Duplicate IP addresses found!")
-        print("   All devices must have unique IP addresses")
+        print('*** ERROR: Duplicate IP addresses found!')
+        print('   All devices must have unique IP addresses')
         exit(1)
     network_base = networks[0] if networks else None
     for i, network in enumerate(networks):
         if network != network_base:
-            device_type = "Lighthouse" if i < len(mesh['lighthouses']) else "Node"
+            device_type = 'Lighthouse' if i < len(mesh['lighthouses']) else 'Node'
             index = i+1 if i < len(mesh['lighthouses']) else i - len(mesh['lighthouses']) + 1
             print(f"*** ERROR: {device_type} {index} IP is not in the same /24 network!")
-            print(f"   All devices must be in {network_base} network")
+            print(f'   All devices must be in {network_base} network')
             exit(1)
     return tun_device, network_base, all_ips
 
@@ -397,9 +401,9 @@ def process_config(config_path, output_dir):
     print()
 
 
-parser = argparse.ArgumentParser(description="Generate Nebula configs based on a network outline")
-parser.add_argument('-v', '--version', action='version', version=f"{APP} {VERSION}")
-parser.add_argument("Outline", help='Network outline (YAML format)')
+parser = argparse.ArgumentParser(description='Generate Nebula configs based on a network outline')
+parser.add_argument('-v', '--version', action='version', version=f'{APP} {VERSION}')
+parser.add_argument('Outline', help='Network outline (YAML format)')
 parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where Outline is located)')
 parser.add_argument('-z', action='store_true', help='Zip packages')
 parser.add_argument('-V', metavar='id', help='Config version number or id (optional)')
