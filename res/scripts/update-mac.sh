@@ -91,7 +91,7 @@ get_nebula_version() {
     fi
 }
 
-download_package() {
+download_package() { # FIX: doesn't fail if no package found??
     local remote_version="$1"
     local node_name
     local package_name
