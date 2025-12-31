@@ -29,11 +29,10 @@ catch {}
 
 $serviceName = "Nebula"
 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+$nebulaExe = Join-Path $InstallDir "nebula.exe"
 
 if ($service) {
-
     if ($service.Status -eq 'Running') {
-        $nebulaExe = Join-Path $InstallDir "nebula.exe"
         if (Test-Path $nebulaExe) {
             & $nebulaExe -service stop 2>&1 | Out-Null
         } else {
