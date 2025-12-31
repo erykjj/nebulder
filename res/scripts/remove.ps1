@@ -16,7 +16,6 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 
 Write-Log "Nebula Removal Script"
-Write-Log "Target: $InstallDir"
 
 $taskName = "Nebula-@@tun_device@@ Auto-Update"
 Write-Log "Removing scheduled task: $taskName"
@@ -56,5 +55,8 @@ if ($service) {
         Write-Log "Service uninstalled"
     }
 }
+
+Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+Write-Log "Removed $InstallDir"
 
 Write-Log "Done. If there were no errors, you can remove this script/deployment package"
