@@ -95,11 +95,10 @@ def copy_files(dest_path, device, op_sys, lighthouse=False):
     if lighthouse:
         cprint(f"\nDevice: lighthouse '{device['name']}' ({op_sys})", color='yellow', bold=True)
     else:
-        d = 'node'
         cprint(f"\nDevice: node '{device['name']}' ({op_sys})", color='blue', bold=True)
     dest_path.mkdir(exist_ok=True)
     update_conf = conf_path / 'update.conf'
-    if update_conf.exists():
+    if update_conf.exists() and op_sys not in ['android', 'ios']:
         shutil.copy(str(update_conf), str(dest_path))
     if op_sys == 'linux':
         for script_name in ['deploy.sh', 'remove.sh', 'update.sh']:
