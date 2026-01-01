@@ -37,6 +37,23 @@ from subprocess import run, PIPE
 from zipfile import ZipFile, ZIP_DEFLATED
 
 
+def cprint(text, color='white', bold=False):
+    colors = {
+        'black': '\033[30m',
+        'red': '\033[31m',
+        'green': '\033[32m',
+        'yellow': '\033[33m',
+        'blue': '\033[34m',
+        'magenta': '\033[35m',
+        'cyan': '\033[36m',
+        'white': '\033[37m',
+        'reset': '\033[0m',
+        'bold': '\033[1m'
+    }
+    color_code = colors.get(color, colors['white'])
+    bold_code = colors['bold'] if bold else ''
+    print(f"{bold_code}{color_code}{text}{colors['reset']}")
+
 def get_version(path):
     version_file = path / 'version.txt'
     if not version_file.exists():
@@ -59,9 +76,10 @@ def cert_date(cert_path):
 def generate_certificate_authority():
     ca_crt = conf_path / f"{mesh['tun_device']}_ca.crt"
     ca_key = conf_path / f"{mesh['tun_device']}_ca.private.key"
-    print(f"Certificate authority for '{mesh['tun_device']}'")
+    cprint(f"Certificate authority for '{mesh['tun_device']}'", color='magenta', bold=True)
     if ca_crt.exists() and ca_key.exists():
-        print(f'   Key already exists - expires: {cert_date(ca_crt)}\n   Skipping key generation')
+        cprint(f'   Key already exists - expires: {cert_date(ca_crt)}', color='green')
+        print(f'   Skipping key generation')
         return False
     else:
         run(['nebula-cert', 'ca', '-name', mesh['tun_device'], 
@@ -70,15 +88,15 @@ def generate_certificate_authority():
         ca_qr = conf_path / f"{mesh['tun_device']}_ca.qr"
         run(['nebula-cert', 'print', '-path', str(ca_crt),
              '-out-qr', str(ca_qr)], stdout=PIPE, check=True)
-        print(f'   Certificate expires: {cert_date(ca_crt)}')
+        cprint(f'   Certificate expires: {cert_date(ca_crt)}', color='green')
         return True
 
 def copy_files(dest_path, device, op_sys, lighthouse=False):
     if lighthouse:
-        d = 'lighthouse'
+        cprint(f"\nDevice: lighthouse '{device['name']}' ({op_sys})", color='yellow', bold=True)
     else:
         d = 'node'
-    print(f"\nProcessing {d} '{device['name']}' ({op_sys})")
+        cprint(f"\nDevice: node '{device['name']}' ({op_sys})", color='blue', bold=True)
     dest_path.mkdir(exist_ok=True)
     update_conf = conf_path / 'update.conf'
     if update_conf.exists():
@@ -118,7 +136,7 @@ def copy_files(dest_path, device, op_sys, lighthouse=False):
             host_crt.unlink(missing_ok=True)
             host_key.unlink(missing_ok=True)
         else:
-            print(f'   Certificate already exists\n   Skipping key generation\n   Added config.yaml')
+            print(f'   Certificate already exists\n   Skipping key generation\n   Added config.yaml, etc.')
             return
     ca_crt_path = conf_path / f"{mesh['tun_device']}_ca.crt"
     ca_key_path = conf_path / f"{mesh['tun_device']}_ca.private.key"
@@ -135,7 +153,8 @@ def copy_files(dest_path, device, op_sys, lighthouse=False):
         host_qr = dest_path / 'host.qr'
         run(['nebula-cert', 'print', '-path', str(host_crt), '-out-qr', str(host_qr)], 
             stdout=PIPE, check=True)
-    print(f'   Added config.yaml and key files\n   Certificate expires: {cert_date(host_crt)}')
+    print('   Added config.yaml and key files')
+    cprint(f'   Certificate expires: {cert_date(host_crt)}', color='green')
 
 def zip_package(archive_name):
     package_path = root_path / archive_name
@@ -201,20 +220,20 @@ def create_device_config(dest_path, device_type, device_name, op_sys, device_ip,
 
 def process_lighthouses():
     if 'lighthouses' not in mesh:
-        print('*** ERROR: No lighthouse defined!\n')
+        cprint('*** ERROR: No lighthouse defined!\n', color='red')
         exit()
     for i, lighthouse in enumerate(mesh['lighthouses']):
         if 'name' not in lighthouse:
-            print(f"*** ERROR: Lighthouse {i+1} missing 'name' field!\n")
+            cprint(f"*** ERROR: Lighthouse {i+1} missing 'name' field!\n", color='red')
             exit()
         if 'nebula_ip' not in lighthouse:
-            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'nebula_ip' field!\n")
+            cprint(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'nebula_ip' field!\n", color='red')
             exit()
         if 'public_ip' not in lighthouse:
-            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'public_ip' field!\n")
+            cprint(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'public_ip' field!\n", color='red')
             exit()
         if 'listen_port' not in lighthouse:
-            print(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'listen_port' field!\n")
+            cprint(f"*** ERROR: Lighthouse '{lighthouse['name']}' missing 'listen_port' field!\n", color='red')
             exit()
     for lighthouse in mesh['lighthouses']:
         host_map = []
@@ -247,14 +266,14 @@ def process_lighthouses():
 
 def process_nodes():
     if 'nodes' not in mesh:
-        print('*** No standard nodes defined! ***')
+        cprint('*** No standard nodes defined! ***', color='red')
         return
     for i, node in enumerate(mesh['nodes']):
         if 'name' not in node:
-            print(f"*** ERROR: Node {i+1} missing 'name' field!\n")
+            cprint(f"*** ERROR: Node {i+1} missing 'name' field!\n", color='red')
             exit()
         if 'nebula_ip' not in node:
-            print(f"*** ERROR: Node '{node['name']}' missing 'nebula_ip' field!\n")
+            cprint(f"*** ERROR: Node '{node['name']}' missing 'nebula_ip' field!\n", color='red')
             exit()
     for node in mesh['nodes']:
         path = root_path / f"node_{node['name']}"
@@ -292,14 +311,14 @@ def validate_names_and_ips(mesh):
 
     def validate_device_name(name, device_type):
         if not name:
-            print(f"*** ERROR: {device_type} missing 'name' field!")
+            cprint(f"*** ERROR: {device_type} missing 'name' field!", color='red')
             exit(1)
         if not re.match(r'^[a-zA-Z0-9_\-]+$', name):
-            print(f"*** ERROR: Invalid {device_type} name '{name}'!")
+            cprint(f"*** ERROR: Invalid {device_type} name '{name}'!", color='red')
             print('   Must contain only letters, numbers, hyphens, and underscores')
             exit(1)
         if name in used_names:
-            print(f"*** ERROR: Duplicate name '{name}'!")
+            cprint(f"*** ERROR: Duplicate name '{name}'!", color='red')
             print('   All device names must be unique')
             exit(1)
         used_names.add(name)
@@ -309,41 +328,41 @@ def validate_names_and_ips(mesh):
         device_name = validate_device_name(device.get('name'), f'{device_type} {index}')
         nebula_ip = device.get('nebula_ip')
         if not nebula_ip:
-            print(f"*** ERROR: {device_type} '{device_name}' missing 'nebula_ip'!")
+            cprint(f"*** ERROR: {device_type} '{device_name}' missing 'nebula_ip'!", color='red')
             exit(1)
         try:
             ip_obj = ipaddress.IPv4Address(nebula_ip)
             if not ip_obj.is_private:
-                print(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' is not a private IP!")
+                cprint(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' is not a private IP!", color='red')
                 print('   Must be in ranges: 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16')
                 exit(1)
             last_octet = int(nebula_ip.split('.')[-1])
             if last_octet == 0 or last_octet == 255:
-                print(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' may be network or broadcast address!")
+                cprint(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' may be network or broadcast address!", color='red')
                 print('   Avoid .0 or .255 as last octet for /24 networks')
                 exit(1)
             return device_name, nebula_ip, ipaddress.IPv4Network(f'{nebula_ip}/24', strict=False)
         except (ipaddress.AddressValueError, ValueError) as e:
-            print(f"*** ERROR: {device_type} '{device_name}' has invalid IP '{nebula_ip}': {e}")
+            cprint(f"*** ERROR: {device_type} '{device_name}' has invalid IP '{nebula_ip}': {e}", color='red')
             exit(1)
 
     tun_device = mesh.get('tun_device')
     if not tun_device:
-        print("*** ERROR: Missing 'tun_device' in mesh configuration!")
+        cprint("*** ERROR: Missing 'tun_device' in mesh configuration!", color='red')
         exit(1)
     if not re.match(r'^[a-zA-Z0-9_\-]+$', tun_device):
-        print(f"*** ERROR: Invalid tun_device name '{tun_device}'!")
+        cprint(f"*** ERROR: Invalid tun_device name '{tun_device}'!", color='red')
         print('   Must contain only letters, numbers, hyphens, and underscores')
         exit(1)
     if tun_device.startswith('-') or tun_device.endswith('-'):
-        print(f"*** ERROR: Invalid tun_device name '{tun_device}'!")
+        cprint(f"*** ERROR: Invalid tun_device name '{tun_device}'!", color='red')
         print('   Cannot start or end with hyphen')
         exit(1)
     used_names = set()
     all_ips = []
     networks = []
     if 'lighthouses' not in mesh or not mesh['lighthouses']:
-        print('*** ERROR: At least one lighthouse is required!')
+        cprint('*** ERROR: At least one lighthouse is required!', color='red')
         exit(1)
     for i, lighthouse in enumerate(mesh['lighthouses']):
         _, ip, network = process_device(lighthouse, 'Lighthouse', i+1)
@@ -355,7 +374,7 @@ def validate_names_and_ips(mesh):
             all_ips.append(ip)
             networks.append(network)
     if len(set(all_ips)) != len(all_ips):
-        print('*** ERROR: Duplicate IP addresses found!')
+        cprint('*** ERROR: Duplicate IP addresses found!', color='red')
         print('   All devices must have unique IP addresses')
         exit(1)
     network_base = networks[0] if networks else None
@@ -363,7 +382,7 @@ def validate_names_and_ips(mesh):
         if network != network_base:
             device_type = 'Lighthouse' if i < len(mesh['lighthouses']) else 'Node'
             index = i+1 if i < len(mesh['lighthouses']) else i - len(mesh['lighthouses']) + 1
-            print(f"*** ERROR: {device_type} {index} IP is not in the same /24 network!")
+            cprint(f"*** ERROR: {device_type} {index} IP is not in the same /24 network!", color='red')
             print(f'   All devices must be in {network_base} network')
             exit(1)
     return tun_device, network_base, all_ips
@@ -378,7 +397,7 @@ def process_config(config_path, output_dir):
     root_path.mkdir(exist_ok=True)
     print()
     print('='*75)
-    print('nebulder - a builder script for deploying Nebula mesh networks')
+    cprint('nebulder - a builder script for deploying Nebula mesh networks', color='green', bold=True)
     print('='*75)
     print(f'\nMesh network: {tun_device}')
     print(f'IP network: {network_base}')
@@ -396,7 +415,8 @@ def process_config(config_path, output_dir):
     lighthouse_ips = []
     process_lighthouses()
     process_nodes()
-    print(f'\nCompleted successfully\n   Deployment packages in {root_path}\n')
+    cprint('\nCompleted successfully', color='green')
+    print(f'   Deployment packages in {root_path}\n')
     print('='*75)
     print()
 
