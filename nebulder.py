@@ -99,7 +99,17 @@ def copy_files(dest_path, device, op_sys, lighthouse=False):
     dest_path.mkdir(exist_ok=True)
     update_conf = conf_path / 'update.conf'
     if update_conf.exists() and op_sys not in ['android', 'ios']:
-        shutil.copy(str(update_conf), str(dest_path))
+        password = device.get('update_password')
+        if not password:
+            cprint(f"*** ERROR: Device '{device['name']}' missing update_password!", color='red')
+            exit(1)
+        with open(update_conf, 'r') as f:
+            content = f.read()
+        content = content.rstrip()
+        content += f'\nUPDATE_PASSWORD="{password}"\n'
+        dest_update_conf = dest_path / 'update.conf'
+        with open(dest_update_conf, 'w') as f:
+            f.write(content)
     if op_sys == 'linux':
         for script_name in ['deploy.sh', 'remove.sh', 'update.sh']:
             script_path = dest_path / script_name
