@@ -17,7 +17,7 @@ The script has only been tested under Linux and the latest *nebula-cert* binary 
 3. Execute this *nebulder.py* script. It will generate the *config.yaml* interface configuration file and other necessary files for each device/node in its own deployment package/folder
 4. If installing *for the first time* (or updating the binaries), place the latest **binaries** from the [Nebula repo](https://github.com/slackhq/nebula/releases/latest) into each node's deployment folder - make sure they are for the correct OS/architecture:
     - Linux and macOS will need the *nebula* binary
-    - Windows will need *nebula.exe* as well as the *dist* folder and its contents (*wintun.dll* driver)
+    - Windows will need *nebula.exe* as well as the *dist* directory tree (*wintun.dll* driver)
 5. Copy each deployment package to the corresponding device
 6. Execute the deployment script on each device (from within package folder copied to the device):
     - On **Linux** (requires *systemd*) execute `sudo bash deploy.sh` to install or update. The script will (re)place the binary in `/usr/lib/nebula/[tun_device]/` and the config and keys in `/etc/nebula/[tun_device]/`, and will create and (re)start a *systemd* service. The *tun_device* (mesh network name from the outline YAML) is used as a subdirectory to support multiple independent Nebula networks on the same machine
