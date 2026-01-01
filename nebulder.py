@@ -118,7 +118,7 @@ def copy_files(dest_path, device, op_sys, lighthouse=False):
             host_crt.unlink(missing_ok=True)
             host_key.unlink(missing_ok=True)
         else:
-            print(f'   Certificate already exists - expires: {cert_date(host_crt)}\n   Skipping key generation\n   Added config.yaml')
+            print(f'   Certificate already exists\n   Skipping key generation\n   Added config.yaml')
             return
     ca_crt_path = conf_path / f"{mesh['tun_device']}_ca.crt"
     ca_key_path = conf_path / f"{mesh['tun_device']}_ca.private.key"
@@ -378,7 +378,7 @@ def process_config(config_path, output_dir):
     root_path.mkdir(exist_ok=True)
     print()
     print('='*75)
-    print('nebulder - a builder script for Nebula mesh networks')
+    print('nebulder - a builder script for deploying Nebula mesh networks')
     print('='*75)
     print(f'\nMesh network: {tun_device}')
     print(f'IP network: {network_base}')
@@ -396,7 +396,7 @@ def process_config(config_path, output_dir):
     lighthouse_ips = []
     process_lighthouses()
     process_nodes()
-    print(f'\nCompleted successfully\n   See output in {root_path}')
+    print(f'\nCompleted successfully\n   Deployment packages in {root_path}\n')
     print('='*75)
     print()
 
