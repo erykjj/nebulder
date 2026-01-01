@@ -39,17 +39,17 @@ Keep in mind that (by design and by default) Nebula certificate authority keys e
 <summary>[EXPAND] Command-line usage</summary><br/>
 
 ```
-usage: python3 nebulder.py [-h] [-v] [-o directory] [-z] [-V id] Outline
+usage: python3 nebulder.py [-h] [-v] [-o directory] [-z] [-V id] outline
 
 Generate Nebula configs based on a network outline
 
 positional arguments:
-  Outline        Network outline (YAML format)
+  outline        Network outline (YAML format)
 
 options:
   -h, --help     show this help message and exit
   -v, --version  show program's version number and exit
-  -o directory   Output directory (defaults to dir where Outline is located)
+  -o directory   Output directory (defaults to dir where outline is located)
   -z             Zip packages
   -V id          Config version number or id (optional)
 ```
