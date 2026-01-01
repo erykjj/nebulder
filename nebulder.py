@@ -69,6 +69,8 @@ def get_version(path):
 def cert_date(cert_path):
     arguments = ['nebula-cert', 'print', '-path', str(cert_path)]
     cert = run(arguments, stdout=PIPE, check=True)
+    return re.search(r'Not After: (.*)', cert.stdout.decode(), re.MULTILINE).group(1) or 'ERROR in reading CERT file'
+    # for newer v2 certificates (nebula-cert v1.10.0+)
     cert_data = json.loads(cert.stdout)
     not_after = cert_data['details']['notAfter']
     return not_after
