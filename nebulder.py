@@ -423,13 +423,13 @@ def process_config(config_path, output_dir):
 
 parser = argparse.ArgumentParser(description='Generate Nebula configs based on a network outline')
 parser.add_argument('-v', '--version', action='version', version=f'{APP} {VERSION}')
-parser.add_argument('Outline', help='Network outline (YAML format)')
-parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where Outline is located)')
+parser.add_argument('outline', help='Network outline (YAML format)')
+parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where outline is located)')
 parser.add_argument('-z', action='store_true', help='Zip packages')
 parser.add_argument('-V', metavar='id', help='Config version number or id (optional)')
 args = vars(parser.parse_args())
 if args['o']:
     output_path = Path(args['o'].rstrip('/'))
 else:
-    output_path = Path(args['Outline']).resolve().parent
-process_config(args['Outline'], output_path)
+    output_path = Path(args['outline']).resolve().parent
+process_config(args['outline'], output_path)
