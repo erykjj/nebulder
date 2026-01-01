@@ -30,7 +30,7 @@ APP = 'nebulder'
 VERSION = 'v2.0.0'
 
 
-import argparse, ipaddress, json, re, shutil, yaml
+import argparse, ipaddress, json, re, secrets, shutil, string, yaml
 from copy import deepcopy
 from pathlib import Path
 from subprocess import run, PIPE
@@ -155,18 +155,27 @@ def copy_files(dest_path, device, op_sys, lighthouse=False):
     print('   Added config.yaml and key files')
     cprint(f'   Certificate expires: {cert_date(host_crt)}', color='green')
 
-def zip_package(archive_name):
+def zip_package(archive_name, password):
+
+    def encrypt_file(input_path, output_path, password):
+        import subprocess
+        cmd = ['openssl', 'enc', '-aes-256-cbc', '-salt', '-pbkdf2', '-iter', '100000', '-in', str(input_path), '-out', str(output_path),'-pass', f'pass:{password}']
+        subprocess.run(cmd, check=True)
+
     package_path = root_path / archive_name
     version_file = package_path / 'version'
     version_file.write_text(args['V'] + '\n')
     if not args['z']:
         return
-    zip_path = root_path / f"{archive_name}_{args['V']}.zip"
-    with ZipFile(zip_path, 'w', compression=ZIP_DEFLATED) as zip_file:
+    temp_zip = root_path / f"{archive_name}_{args['V']}.zip"
+    with ZipFile(temp_zip, 'w', compression=ZIP_DEFLATED) as zip_file:
         for file_path in package_path.rglob('*'):
             if file_path.is_file():
                 arcname = file_path.relative_to(package_path)
                 zip_file.write(str(file_path), str(arcname))
+    zip_path = f'{temp_zip}.enc'
+    encrypt_file(temp_zip, zip_path, password)
+    temp_zip.unlink()
 
 def process_firewall(firewall_rules):
     processed = []
@@ -261,7 +270,8 @@ def process_lighthouses():
         create_device_config(
             path, 'lighthouse', lighthouse['name'], op_sys, lighthouse['nebula_ip'], conf
         )
-        zip_package(f"lighthouse_{lighthouse['name']}")
+        if op_sys not in ['android', 'ios']:
+            zip_package(f"lighthouse_{lighthouse['name']}", lighthouse['update_password'])
 
 def process_nodes():
     if 'nodes' not in mesh:
@@ -292,7 +302,8 @@ def process_nodes():
         create_device_config(
             path, 'node', node['name'], op_sys, node['nebula_ip'], conf
         )
-        zip_package(f"node_{node['name']}")
+        if op_sys not in ['android', 'ios']:
+            zip_package(f"node_{node['name']}", node['update_password'])
 
 def load_resources():
     res_path = Path(__file__).resolve().parent / 'res'
@@ -387,6 +398,29 @@ def validate_names_and_ips(mesh):
     return tun_device, network_base, all_ips
 
 def process_config(config_path, output_dir):
+
+    def generate_password(length=16):
+        alphabet = string.ascii_letters + string.digits
+        return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+    def add_update_passwords():
+        for device_type in ['lighthouses', 'nodes']:
+            if device_type not in mesh:
+                continue
+            for device in mesh[device_type]:
+                if 'update_password' not in device:
+                    device['update_password'] = generate_password()
+        return mesh
+
+    def save_updated_outline():
+        path = Path(config_path)
+        updated_path = path.with_name(f'{path.stem}_pass.yaml')
+        header = '# WARNING: This file contains passwords for auto-update encryption\n\n'
+        with open(updated_path, 'w') as f:
+            f.write(header)
+            yaml.dump(mesh, f, Dumper=yaml.dumper.SafeDumper, default_flow_style=False, sort_keys=False)
+        return updated_path
+
     global mesh, root_path, conf_path, base_config, scripts, is_new, relays, lighthouse_ips
     with open(config_path) as f:
         mesh = yaml.load(f, Loader=yaml.loader.SafeLoader)
@@ -410,6 +444,8 @@ def process_config(config_path, output_dir):
         scripts_dict[script_name] = scripts_dict[script_name].replace('@@tun_device@@', mesh['tun_device'])
     scripts = scripts_dict
     is_new = generate_certificate_authority()
+    add_update_passwords()
+    save_updated_outline()
     relays = {}
     lighthouse_ips = []
     process_lighthouses()
