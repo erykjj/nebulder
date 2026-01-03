@@ -44,7 +44,7 @@ load_configuration() {
 
     source "${CONFIG_FILE}"
 
-    if [[ -z "${UPDATE_SERVER:-}" || -z "${AUTH_USER:-}" || -z "${AUTH_PASS:-}" ]]; then
+    if [[ -z "${UPDATE_SERVER:-}" || -z "${AUTH_USER:-}" || -z "${AUTH_PASS:-}" || -z "${UPDATE_PASS:-}" ]]; then
         echo "ERROR: Missing required configuration in ${CONFIG_FILE}" >&2
         exit 1
     fi
@@ -60,15 +60,13 @@ check_root() {
 }
 
 check_dependencies() {
-    if ! command -v curl >/dev/null 2>&1; then
-        echo "ERROR: Missing required dependency: curl" >&2
-        exit 1
-    fi
-
-    if ! command -v unzip >/dev/null 2>&1; then
-        echo "ERROR: Missing required dependency: unzip" >&2
-        exit 1
-    fi
+    local required_commands=("curl" "unzip" "openssl")
+    for cmd in "${required_commands[@]}"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            echo "ERROR: Missing required dependency: $cmd" >&2
+            exit 1
+        fi
+    done
 }
 
 # ----------------------------------------------------------------------------
@@ -169,25 +167,66 @@ step_validate_node() {
 
 step_download_package() {
     local remote_version="$1"
-    local package_name="${NODE_NAME}_${remote_version}.zip"
+    local package_name="${NODE_NAME}_${remote_version}.zip.enc"
     local package_url="${UPDATE_SERVER}/${package_name}"
 
     TEMP_DIR=$(mktemp -d -t nebula-update-XXXXXX)
 
-    log "Downloading package"
-    if ! curl -s -u "${AUTH_USER}:${AUTH_PASS}" --connect-timeout 30 -o "${TEMP_DIR}/package.zip" "${package_url}"; then
+    log "Downloading encrypted package"
+    if ! curl -s -u "${AUTH_USER}:${AUTH_PASS}" --connect-timeout 30 -o "${TEMP_DIR}/package.enc" "${package_url}"; then
         FAILURE_REASON="DOWNLOAD_FAILED"
         log "Package download failed"
         return 1
     fi
+
+    log "Decrypting package"
+    if ! step_decrypt_package "${TEMP_DIR}/package.enc" "${TEMP_DIR}/package.zip"; then
+        FAILURE_REASON="DECRYPTION_FAILED"
+        log "Package decryption failed"
+        return 1
+    fi
+    rm -f "${TEMP_DIR}/package.enc"
 
     if ! unzip -q -d "${TEMP_DIR}" "${TEMP_DIR}/package.zip" 2>/dev/null; then
         FAILURE_REASON="INVALID_PACKAGE"
         log "Invalid or missing package"
         return 1
     fi
+    rm -f "${TEMP_DIR}/package.zip"
 
     return 0
+}
+
+step_decrypt_package() {
+    local encrypted_file="$1"
+    local output_file="$2"
+
+    if [[ ! -f "$encrypted_file" ]] || [[ ! -r "$encrypted_file" ]]; then
+        log "ERROR: Encrypted file not found or not readable"
+        return 1
+    fi
+
+    local file_size=$(stat -c%s "$encrypted_file" 2>/dev/null || stat -f%z "$encrypted_file" 2>/dev/null)
+    if [[ $file_size -lt 16 ]]; then
+        log "ERROR: Encrypted file too small"
+        return 1
+    fi
+
+    if ! command -v openssl >/dev/null 2>&1; then
+        log "ERROR: openssl command not found"
+        return 1
+    fi
+
+    if openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
+        -in "$encrypted_file" \
+        -out "$output_file" \
+        -pass "pass:${UPDATE_PASS}" 2>/dev/null; then
+        log "Package decrypted successfully"
+        return 0
+    else
+        log "ERROR: openssl decryption failed"
+        return 1
+    fi
 }
 
 step_create_backup() {
