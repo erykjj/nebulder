@@ -16,7 +16,7 @@ The script has only been tested under Linux and the latest *nebula-cert* binary 
     - If you want to receive notifications via *ntfy.sh*, provide the channel these notifications will be sent to
 3. Execute this *nebulder.py* script. It will generate the *config.yaml* interface configuration file and other necessary files for each device/node in its own deployment package/folder
     - An `update_password` key will be automatically generated (if it doesn't already exist) for each node/lighthouse; this will be used to encrypt the zipped update packages. The modified outline will replace the original - keep this safe ;-)
-4. If installing *for the first time* (or updating the binaries), place the latest **binaries** from the [Nebula repo](https://github.com/slackhq/nebula/releases/latest) into each node's deployment folder - make sure they are for the correct OS/architecture:
+4. If installing *for the first time* (or updating the binaries), place the latest **binaries** from the [Nebula repo](https://github.com/slackhq/nebula/releases/latest) into each node's deployment folder[^#] - make sure they are for the correct OS/architecture:
     - Linux and macOS will need the *nebula* binary
     - Windows will need *nebula.exe* as well as the *dist* directory tree (*wintun.dll* driver)
 5. Copy each deployment package to the corresponding device
@@ -67,3 +67,4 @@ Feel free to [get in touch and post any issues and suggestions](https://github.c
 
 ____
 [^*]: Due to changed paths, etc., if you are upgrading the nodes from v1, ensure you clean up their current installs first; otherwise, you may have conflicting services
+[^#]: The binaries (and the Windows *wintun* driver) only need to be in the package folder for initial deployment or if updating theses binaries on the node(s)
