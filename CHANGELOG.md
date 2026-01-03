@@ -4,18 +4,24 @@
 
 ### Added
 
-- **Auto-update functionality** with own server
-
 ### Changed
-
-- **Major rewrite** of node scripts
-- Better macOS support
 
 ### Fixed
 
 ### Removed
 
 ____
+## [2.0.0] - 2026-01-02
+### Added
+
+- **Auto-update functionality** with own server
+  - works on Linux, macOS and Windows
+
+### Changed
+
+- **Major rewrite** of node scripts
+- Better macOS support
+
 ## [1.1.2] - 2025-07-12
 
 ### Fixed
@@ -82,6 +88,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[2.0.0]: https://github.com/erykjj/nebulder/releases/tag/v2.0.0
 [1.1.2]: https://github.com/erykjj/nebulder/releases/tag/v1.1.2
 [1.1.1]: https://github.com/erykjj/nebulder/releases/tag/v1.1.1
 [1.0.2]: https://github.com/erykjj/nebulder/releases/tag/v1.0.2
