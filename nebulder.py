@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v2.0.0'
+VERSION = 'v2.0.1'
 
 
 import argparse, ipaddress, json, re, secrets, shutil, string, yaml
@@ -463,7 +463,7 @@ parser = argparse.ArgumentParser(description='Generate Nebula configs based on a
 parser.add_argument('-v', '--version', action='version', version=f'{APP} {VERSION}')
 parser.add_argument('outline', help='Network outline (YAML format)')
 parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where outline is located)')
-parser.add_argument('-Z', action='store_true', help='Zip and encrypt packages')
+parser.add_argument('-Z', action='store_true', help='Zip and encrypt packages (for auto-update)')
 parser.add_argument('-V', metavar='id', help='Config version number or id (optional)')
 args = vars(parser.parse_args())
 if args['o']:
