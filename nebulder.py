@@ -106,7 +106,7 @@ def copy_files(dest_path, device, op_sys, lighthouse=False):
         with open(update_conf, 'r') as f:
             content = f.read()
         content = content.rstrip()
-        content += f'\nUPDATE_PASSWORD="{password}"\n'
+        content += f'\nUPDATE_PASS="{password}"\n'
         dest_update_conf = dest_path / 'update.conf'
         with open(dest_update_conf, 'w') as f:
             f.write(content)
@@ -420,16 +420,10 @@ def process_config(config_path, output_dir):
             for device in mesh[device_type]:
                 if 'update_password' not in device:
                     device['update_password'] = generate_password()
-        return mesh
-
-    def save_updated_outline():
-        path = Path(config_path)
-        updated_path = path.with_name(f'{path.stem}_pass.yaml')
         header = '# WARNING: This file contains passwords for auto-update encryption\n\n'
-        with open(updated_path, 'w') as f:
+        with open(config_path, 'w') as f:
             f.write(header)
             yaml.dump(mesh, f, Dumper=yaml.dumper.SafeDumper, default_flow_style=False, sort_keys=False)
-        return updated_path
 
     global mesh, root_path, conf_path, base_config, scripts, is_new, relays, lighthouse_ips
     with open(config_path) as f:
@@ -455,7 +449,6 @@ def process_config(config_path, output_dir):
     scripts = scripts_dict
     is_new = generate_certificate_authority()
     add_update_passwords()
-    save_updated_outline()
     relays = {}
     lighthouse_ips = []
     process_lighthouses()
