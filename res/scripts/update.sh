@@ -212,11 +212,6 @@ step_decrypt_package() {
         return 1
     fi
 
-    if ! command -v openssl >/dev/null 2>&1; then
-        log "ERROR: openssl command not found"
-        return 1
-    fi
-
     if openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
         -in "$encrypted_file" \
         -out "$output_file" \
