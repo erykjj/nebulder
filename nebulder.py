@@ -175,7 +175,7 @@ def zip_package(archive_name, password):
     package_path = root_path / archive_name
     version_file = package_path / 'version'
     version_file.write_text(args['V'] + '\n')
-    if not args['z']:
+    if not args['Z']:
         return
     temp_zip = root_path / f"{archive_name}_{args['V']}.zip"
     with ZipFile(temp_zip, 'w', compression=ZIP_DEFLATED) as zip_file:
@@ -463,7 +463,7 @@ parser = argparse.ArgumentParser(description='Generate Nebula configs based on a
 parser.add_argument('-v', '--version', action='version', version=f'{APP} {VERSION}')
 parser.add_argument('outline', help='Network outline (YAML format)')
 parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where outline is located)')
-parser.add_argument('-z', action='store_true', help='Zip packages')
+parser.add_argument('-Z', action='store_true', help='Zip and encrypt packages')
 parser.add_argument('-V', metavar='id', help='Config version number or id (optional)')
 args = vars(parser.parse_args())
 if args['o']:
