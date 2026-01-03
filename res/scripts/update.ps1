@@ -74,7 +74,7 @@ function Read-Config {
         }
     }
 
-    $required = @("UPDATE_SERVER", "AUTH_USER", "AUTH_PASS")
+    $required = @("UPDATE_SERVER", "AUTH_USER", "AUTH_PASS", "UPDATE_PASS")
     foreach ($key in $required) {
         if (-not $config.ContainsKey($key) -or [string]::IsNullOrEmpty($config[$key])) {
             Write-Log "Missing required configuration: $key" -Level "E"
@@ -119,6 +119,45 @@ function Get-NebulaVersion {
         catch {}
     }
     return "unknown"
+}
+
+function Decrypt-Package {
+    param([string]$InputPath, [string]$OutputPath, [string]$Password)
+
+    try {
+        $encryptedBytes = [System.IO.File]::ReadAllBytes($InputPath)
+        if ($encryptedBytes.Length -lt 16) {
+            Write-Log "File too small for OpenSSL format" -Level "E"
+            return $false
+        }
+        $header = [System.Text.Encoding]::ASCII.GetString($encryptedBytes[0..7])
+        if ($header -ne "Salted__") {
+            Write-Log "Invalid OpenSSL format (missing Salted__ header)" -Level "E"
+            return $false
+        }
+        $salt = $encryptedBytes[8..15]
+        $passwordBytes = [System.Text.Encoding]::UTF8.GetBytes($Password)
+        $derived = New-Object System.Security.Cryptography.Rfc2898DeriveBytes(
+            $passwordBytes, $salt, 100000, [System.Security.Cryptography.HashAlgorithmName]::SHA256
+        )
+        $key = $derived.GetBytes(32)
+        $iv = $derived.GetBytes(16)
+        $aes = [System.Security.Cryptography.Aes]::Create()
+        $aes.Key = $key
+        $aes.IV = $iv
+        $aes.Mode = [System.Security.Cryptography.CipherMode]::CBC
+        $aes.Padding = [System.Security.Cryptography.PaddingMode]::PKCS7
+        $decryptor = $aes.CreateDecryptor()
+        $ciphertext = $encryptedBytes[16..($encryptedBytes.Length - 1)]
+        $plaintext = $decryptor.TransformFinalBlock($ciphertext, 0, $ciphertext.Length)
+        [System.IO.File]::WriteAllBytes($OutputPath, $plaintext)
+        Write-Log "Package decrypted successfully" -Level "I"
+        return $true
+    }
+    catch {
+        Write-Log "Decryption failed: $_" -Level "E"
+        return $false
+    }
 }
 
 # ----------------------------------------------------------------------------
@@ -205,11 +244,11 @@ function Step-ValidateNode {
 }
 
 function Step-DownloadPackage {
-    param([string]$Server, [string]$User, [string]$Pass, [string]$RemoteVersion)
+    param([string]$Server, [string]$User, [string]$Pass, [string]$RemoteVersion, [string]$UpdatePass)
 
-    $packageName = "${Global:NODE_NAME}_${RemoteVersion}.zip"
+    $packageName = "${Global:NODE_NAME}_${RemoteVersion}.zip.enc"
     $packageUrl = "$Server/$packageName"
-    Write-Log "Downloading package: $packageName" -Level "I"
+    Write-Log "Downloading encrypted package: $packageName" -Level "I"
 
     if (Test-Path $DownloadDir) {
         Remove-Item -Path $DownloadDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -223,12 +262,19 @@ function Step-DownloadPackage {
         )
 
         $headers = @{ "Authorization" = "Basic $credential" }
-        $zipPath = Join-Path $DownloadDir $packageName
+        $encryptedPath = Join-Path $DownloadDir $packageName
 
-        Invoke-WebRequest -Uri $packageUrl -Headers $headers -OutFile $zipPath -TimeoutSec 30 -ErrorAction Stop -UseBasicParsing
+        Invoke-WebRequest -Uri $packageUrl -Headers $headers -OutFile $encryptedPath -TimeoutSec 30 -ErrorAction Stop -UseBasicParsing
 
+        $zipPath = $encryptedPath -replace '\.enc$', ''
+
+        if (-not (Decrypt-Package -InputPath $encryptedPath -OutputPath $zipPath -Password $UpdatePass)) {
+            Write-Log "Failed to decrypt package" -Level "E"
+            return $null
+        }
+
+        Remove-Item -Path $encryptedPath -Force -ErrorAction SilentlyContinue
         Expand-Archive -Path $zipPath -DestinationPath $DownloadDir -Force -ErrorAction Stop
-
         Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
 
         return $DownloadDir
@@ -636,7 +682,7 @@ try {
     }
 
     # Step 3: Download package
-    $packageDir = Step-DownloadPackage -Server $config.UPDATE_SERVER -User $config.AUTH_USER -Pass $config.AUTH_PASS -RemoteVersion $Global:REMOTE_VERSION
+    $packageDir = Step-DownloadPackage -Server $config.UPDATE_SERVER -User $config.AUTH_USER -Pass $config.AUTH_PASS -RemoteVersion $Global:REMOTE_VERSION -UpdatePass $config.UPDATE_PASS
     if (-not $packageDir) {
         Report-Result -ResultCode 2
         Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
