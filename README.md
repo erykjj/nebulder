@@ -12,9 +12,10 @@ The script has only been tested under Linux and the latest *nebula-cert* binary 
 1. Define your mesh network by creating an 'outline' (config file in YAML format) listing all the nodes (including at least one lighthouse)
    - See the [*sample_outline.yaml*](https://github.com/erykjj/nebulder/blob/main/res/sample_outline.yaml) for format layout and available attributes
 2. If you want to set up auto-updating (Linux, macOS, Windows), you will need to include a *update.conf* file ([*sample_update.conf*](https://github.com/erykjj/nebulder/blob/main/res/sample_update.conf))
-    - Indicate a web file server with basic auth where update each node will check for updates
+    - Indicate a web server with basic auth where each node will check for updates
     - If you want to receive notifications via *ntfy.sh*, provide the channel these notifications will be sent to
 3. Execute this *nebulder.py* script. It will generate the *config.yaml* interface configuration file and other necessary files for each device/node in its own deployment package/folder
+    - An `update_password` key will be automatically generated (if it doesn't already exist) for each node/lighthouse; this will be used to encrypt the zipped update packages. The modified outline will replace the original - keep this safe ;-)
 4. If installing *for the first time* (or updating the binaries), place the latest **binaries** from the [Nebula repo](https://github.com/slackhq/nebula/releases/latest) into each node's deployment folder - make sure they are for the correct OS/architecture:
     - Linux and macOS will need the *nebula* binary
     - Windows will need *nebula.exe* as well as the *dist* directory tree (*wintun.dll* driver)
@@ -26,10 +27,10 @@ The script has only been tested under Linux and the latest *nebula-cert* binary 
     - For installation on mobile devices (**Android and iOS**), follow the [Nebula documentation](https://nebula.defined.net/docs/guides/quick-start/). QR codes are included in the package to make the process simpler, but there is no script included and you'll need the official apps
     - On **MacOS** we follow a similar approach to Linux, except for using `/usr/local/lib` and `/usr/local/etc/`, and *launchd* for background services
 7. **Lighthouses** need to be reachable from other nodes, so they typically require a public IP address. You may need to set up NAT/port forwarding, dynamic DNS, or use a cloud VPS for this purpose; you may also have to tweak your system firewall to allow UDP connections through to your network interface
-8. If you set up **auto-update**, when you execute *nebulder.py* with `-z`, it will generate zipped deployment/update packages; copy these (along with the *version.txt* file) to your web server's update directory
-    - The update service on each node that has been configured checks for updates every 15 min
-    - It will check if the contents of *version.txt* are different from the local version, which would indicate that an update package for the node is available
-    - It will then download and deploy it automatically
+8. If you set up **auto-update**, when you execute *nebulder.py* with `-Z`, it will generate zipped and encrypted deployment/update packages (which only the designated node will be able to open); copy these (along with the *version.txt* file) to your web server's update directory
+    - The update service that has been configured on each node checks for updates every 15 min
+    - It will check if the contents of *version.txt* are different from the local version, which would indicate that an update package for the node should be available
+    - It will then attempt to download, decrypt, unzip and deploy it automatically
     - If you configured *ntfy.sh* notifications, you'll receive confirmation messages for successful updates or error alerts
 </details><br/>
 
