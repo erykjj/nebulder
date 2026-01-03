@@ -31,9 +31,9 @@ The script has only been tested under Linux and the latest *nebula-cert* binary 
     - It will check if the contents of *version.txt* are different from the local version, which would indicate that an update package for the node should be available
     - It will then attempt to download, decrypt, unzip and deploy it automatically
     - If you configured *ntfy.sh* notifications, you'll receive confirmation messages for successful updates or error alerts
-</details><br/>
 
-Keep in mind that (by design and by default) Nebula certificate authority keys expire in 1 year, and so do all the certificates signed with these keys. Within that period, you can re-use the *ca.key* to generate more devices/nodes, or update existing ones with new binaries. So, keep *ca.key* (and your outline) safe. To renew (i.e., generate new certificate authority keys), remove the *ca.key* and *ca.crt* files from the destination directory, re-run the `nebulder.py` script, and deploy again on every device; or, upload the update packages to your server for nodes with auto-update enabled to deploy themselves. Keep in mind that while deploying; the nebula service on the node goes down; also, if changing the certificate authority, there may be a lost connection until the node and lighthouse(s) are using the same updated certificate.
+NOTE: Keep in mind that (by design and by default) Nebula certificate authority keys expire in 1 year, and so do all the certificates signed with these keys. Within that period, you can re-use the *ca.key* to generate more devices/nodes, or update existing ones with new binaries. So, **keep *ca.key* (and your outline) safe**. To renew (i.e., generate new certificate authority keys), remove the *ca.key* and *ca.crt* files from the destination directory, re-run the `nebulder.py` script, and deploy again on every device; or, upload the update packages to your server for nodes with auto-update enabled to deploy themselves. Keep in mind that while deploying; the nebula service on the node goes down; also, if changing the certificate authority, there may be a lost connection until the node and lighthouse(s) are using the same updated certificate.
+</details><br/>
 
 <details><summary>[EXPAND] Command-line usage</summary><br/>
 
@@ -49,7 +49,7 @@ options:
   -h, --help     show this help message and exit
   -v, --version  show program's version number and exit
   -o directory   Output directory (defaults to dir where outline is located)
-  -Z             Zip and encrypt packages
+  -Z             Zip and encrypt packages (for auto-update)
   -V id          Config version number or id (optional)
 ```
 
