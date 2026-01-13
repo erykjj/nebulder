@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v2.0.1'
+VERSION = 'v2.1.0'
 
 
 import argparse, ipaddress, json, re, secrets, shutil, string, yaml
