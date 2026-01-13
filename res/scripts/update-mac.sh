@@ -115,6 +115,24 @@ trim_log() {
     fi
 }
 
+check_connectivity() {
+    local max_attempts=3
+    local attempt=1
+
+    while [[ $attempt -le $max_attempts ]]; do
+        if curl -s -I --connect-timeout 5 --max-time 10 "${UPDATE_SERVER}/" >/dev/null 2>&1; then
+            return 0
+        fi
+
+        log "Network connectivity check failed (attempt $attempt/$max_attempts)"
+        sleep 2
+        ((attempt++))
+    done
+
+    FAILURE_REASON="NETWORK_UNREACHABLE"
+    return 1
+}
+
 # ----------------------------------------------------------------------------
 # Update Steps
 # ----------------------------------------------------------------------------
@@ -123,17 +141,37 @@ step_check_remote_version() {
     local server="$1"
     local curl_output
     local http_code
+    local max_retries=2
+    local retry_count=0
 
-    curl_output=$(curl -s -w "%{http_code}" -u "${AUTH_USER}:${AUTH_PASS}" --max-time 10 "${server}/version.txt" 2>/dev/null)
-    http_code=${curl_output: -3}
-    curl_output=${curl_output%???}
+    while [[ $retry_count -le $max_retries ]]; do
+        curl_output=$(curl -s -w "%{http_code}" -u "${AUTH_USER}:${AUTH_PASS}" \
+            --connect-timeout 10 \
+            --max-time 15 \
+            "${server}/version.txt" 2>/dev/null)
+
+        http_code=${curl_output: -3}
+        curl_output=${curl_output%???}
+
+        if [[ "$http_code" =~ ^[0-9]{3}$ ]] && [[ "$http_code" != "000" ]]; then
+            break
+        fi
+
+        if [[ $retry_count -lt $max_retries ]]; then
+            log "Retrying connection to update server..."
+            sleep 3
+        fi
+        ((retry_count++))
+    done
+
+    if [[ ! "$http_code" =~ ^[0-9]{3}$ ]] || [[ "$http_code" == "000" ]]; then
+        FAILURE_REASON="SERVER_UNREACHABLE"
+        log "Update server unreachable after $max_retries retries"
+        return 1
+    fi
 
     if [[ "$http_code" != "200" ]]; then
-        if [[ "$http_code" == "000" ]] || [[ -z "$http_code" ]]; then
-            FAILURE_REASON="SERVER_UNREACHABLE"
-            log "Update server unreachable"
-            return 1
-        elif [[ "$http_code" == "401" ]] || [[ "$http_code" == "403" ]]; then
+        if [[ "$http_code" == "401" ]] || [[ "$http_code" == "403" ]]; then
             FAILURE_REASON="AUTH_FAILED"
             log "Authentication failed"
             return 1
@@ -153,7 +191,8 @@ step_check_remote_version() {
 }
 
 step_validate_node() {
-    if ! NODE_NAME=$(get_node_name); then
+    local node_name
+    if ! node_name=$(get_node_name); then
         FAILURE_REASON="NODE_NAME_MISSING"
 
         log "Node name file missing or empty"
@@ -169,6 +208,7 @@ step_validate_node() {
 
         return 1
     fi
+    NODE_NAME="$node_name"
     return 0
 }
 
@@ -388,7 +428,6 @@ cleanup_backup() {
 report_result() {
     local result_code="$1"
     local result_text=""
-    local node_name="${NODE_NAME:-UNKNOWN}"
     local nebula_version=$(get_nebula_version)
 
     case $result_code in
@@ -402,7 +441,7 @@ report_result() {
     mkdir -p "$status_dir"
     cat > "${status_dir}/update-status.json" << EOF
 {
-"node": "$node_name",
+"node": "$NODE_NAME",
 "result": "$result_text",
 "previous": "$OLD_VERSION",
 "current": "$REMOTE_VERSION",
@@ -436,7 +475,7 @@ EOF
                         message="Update FAILED"
                     fi
 
-                    message="${message}"$'\n'"Reason: ${FAILURE_REASON}"
+                    message="${message}"$'\n'"Node: ${NODE_NAME}"$'\n'"Reason: ${FAILURE_REASON}"
                     message="${message}"$'\n'"Nebula: ${nebula_version}"
                     tags="warning"
                     priority="4"
@@ -445,7 +484,7 @@ EOF
 
             if [[ -n "$message" ]]; then
                 echo "$message" | \
-                    curl -H "Title: ${node_name} @ @@tun_device@@" \
+                    curl -H "Title: ${NODE_NAME} @ @@tun_device@@" \
                          -H "Tags:${tags}" \
                          -H "Priority:${priority}" \
                          --data-binary @- "${ntfy_url}" >/dev/null 2>&1 || true
@@ -480,6 +519,16 @@ main() {
     check_root
     load_configuration
     check_dependencies
+
+    # Get node name early for reporting
+    NODE_NAME=$(get_node_name || echo "UNKNOWN")
+
+    # Check network connectivity before proceeding
+    if ! check_connectivity; then
+        report_result 2
+        log "Network connectivity check failed"
+        exit 2
+    fi
 
     OLD_VERSION=$(get_local_version)
 
