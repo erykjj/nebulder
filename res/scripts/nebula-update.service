@@ -8,6 +8,7 @@ ConditionPathExists=/etc/nebula/@@tun_device@@/node
 [Service]
 Type=oneshot
 ExecStart=/usr/lib/nebula/@@tun_device@@/update.sh
+ExecStartPre=/bin/sleep 5
 TimeoutStartSec=600
 TimeoutStopSec=30
 User=root
