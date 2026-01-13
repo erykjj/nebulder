@@ -8,11 +8,15 @@
 
 ### Fixed
 
-- Fixed ntfy messages when network not yet up
-
 ### Removed
 
 ____
+## [2.1.0] - 2026-01-13
+### Fixed
+
+- Fixed ntfy messages when network not yet up
+  - Added network connectivity checks and a slight delay
+
 ## [2.0.0] - 2026-01-02
 ### Added
 
@@ -90,6 +94,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[2.1.0]: https://github.com/erykjj/nebulder/releases/tag/v2.1.0
 [2.0.0]: https://github.com/erykjj/nebulder/releases/tag/v2.0.0
 [1.1.2]: https://github.com/erykjj/nebulder/releases/tag/v1.1.2
 [1.1.1]: https://github.com/erykjj/nebulder/releases/tag/v1.1.1
