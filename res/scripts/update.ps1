@@ -163,36 +163,6 @@ function Decrypt-Package {
     }
 }
 
-function Test-NetworkConnectivity {
-    param([string]$Server)
-
-    $maxAttempts = 3
-    $attempt = 1
-
-    while ($attempt -le $maxAttempts) {
-        try {
-            $request = [System.Net.WebRequest]::Create($Server)
-            $request.Timeout = 5000
-            $request.Method = "HEAD"
-            $response = $request.GetResponse()
-            $response.Close()
-            Write-Log "Network connectivity check successful (attempt $attempt/$maxAttempts)" -Level "I"
-            return $true
-        }
-        catch {
-            if ($attempt -lt $maxAttempts) {
-                Write-Log "Network connectivity check failed (attempt $attempt/$maxAttempts)" -Level "W"
-                Start-Sleep -Seconds 2
-            }
-            $attempt++
-        }
-    }
-
-    $Global:FAILURE_REASON = "NETWORK_UNREACHABLE"
-    Write-Log "Network connectivity check failed after $maxAttempts attempts" -Level "E"
-    return $false
-}
-
 # ----------------------------------------------------------------------------
 # Update Steps
 # ----------------------------------------------------------------------------
@@ -711,13 +681,6 @@ try {
         $Global:NODE_NAME = "UNKNOWN"
     } else {
         $Global:NODE_NAME = $nodeName
-    }
-
-    # Check network connectivity before proceeding
-    if (-not (Test-NetworkConnectivity -Server $Global:config.UPDATE_SERVER)) {
-        Report-Result -ResultCode 2
-        Write-Log "Network connectivity check failed" -Level "E"
-        exit 2
     }
 
     $Global:OLD_VERSION = Get-LocalVersion
