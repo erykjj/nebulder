@@ -6,6 +6,8 @@
 # MIT License: Copyright (c) 2026 Eryk J.
 # ============================================================================
 
+#!/bin/bash
+
 set -euo pipefail
 
 # ----------------------------------------------------------------------------
@@ -41,14 +43,11 @@ load_configuration() {
         echo "ERROR: Configuration file not found: ${CONFIG_FILE}" >&2
         exit 1
     fi
-
     source "${CONFIG_FILE}"
-
     if [[ -z "${UPDATE_SERVER:-}" || -z "${AUTH_USER:-}" || -z "${AUTH_PASS:-}" || -z "${UPDATE_PASS:-}" ]]; then
         echo "ERROR: Missing required configuration in ${CONFIG_FILE}" >&2
         exit 1
     fi
-
     NTFY_CHANNEL="${NTFY_CHANNEL:-}"
 }
 
@@ -89,12 +88,10 @@ get_node_name() {
     if [[ ! -f "${LOCAL_NODE_FILE}" ]]; then
         return 1
     fi
-
     local node_content=$(cat "${LOCAL_NODE_FILE}" 2>/dev/null | tr -d '[:space:]')
     if [[ -z "$node_content" ]]; then
         return 1
     fi
-
     echo "$node_content"
     return 0
 }
@@ -107,51 +104,74 @@ get_nebula_version() {
     fi
 }
 
+check_connectivity() {
+    local max_attempts=3
+    local attempt=1
+    while [[ $attempt -le $max_attempts ]]; do
+        if curl -s -I --connect-timeout 5 --max-time 10 "${UPDATE_SERVER}/" >/dev/null 2>&1; then
+            return 0
+        fi
+        log "Network connectivity check failed (attempt $attempt/$max_attempts)"
+        sleep 2
+        ((attempt++))
+    done
+    FAILURE_REASON="NETWORK_UNREACHABLE"
+    return 1
+}
+
 # ----------------------------------------------------------------------------
 # Update Steps (Non-critical - return 1 on error, set FAILURE_REASON)
 # ----------------------------------------------------------------------------
-
 step_check_remote_version() {
     local server="$1"
     local curl_output
     local http_code
-
-    curl_output=$(curl -s -w "%{http_code}" -u "${AUTH_USER}:${AUTH_PASS}" --max-time 10 "${server}/version.txt" 2>/dev/null)
-    http_code=${curl_output: -3}
-    curl_output=${curl_output%???}
-
+    local max_retries=2
+    local retry_count=0
+    while [[ $retry_count -le $max_retries ]]; do
+        curl_output=$(curl -s -w "%{http_code}" -u "${AUTH_USER}:${AUTH_PASS}" \
+            --connect-timeout 10 \
+            --max-time 15 \
+            "${server}/version.txt" 2>/dev/null)
+        http_code=${curl_output: -3}
+        curl_output=${curl_output%???}
+        if [[ "$http_code" =~ ^[0-9]{3}$ ]] && [[ "$http_code" != "000" ]]; then
+            break
+        fi
+        if [[ $retry_count -lt $max_retries ]]; then
+            log "Retrying connection to update server..."
+            sleep 3
+        fi
+        ((retry_count++))
+    done
+    if [[ ! "$http_code" =~ ^[0-9]{3}$ ]] || [[ "$http_code" == "000" ]]; then
+        FAILURE_REASON="SERVER_UNREACHABLE"
+        log "Update server unreachable after $max_retries retries"
+        return 1
+    fi
     if [[ "$http_code" != "200" ]]; then
-        if [[ "$http_code" == "000" ]] || [[ -z "$http_code" ]]; then
-            FAILURE_REASON="SERVER_UNREACHABLE"
-            log "Update server unreachable"
-            return 1
-        elif [[ "$http_code" == "401" ]] || [[ "$http_code" == "403" ]]; then
+        if [[ "$http_code" == "401" ]] || [[ "$http_code" == "403" ]]; then
             FAILURE_REASON="AUTH_FAILED"
             log "Authentication failed"
             return 1
         else
-            # NO_VERSION_FILE is not an error, just means no update
-            REMOTE_VERSION=""  # Clear remote version
-            return 0  # Success - no update available
+            REMOTE_VERSION=""
+            return 0
         fi
     fi
-
     REMOTE_VERSION=$(echo "$curl_output" | tr -d '[:space:]')
     if [[ -z "${REMOTE_VERSION}" ]]; then
-        # Empty version.txt also means no update
         REMOTE_VERSION=""
-        return 0  # Success - no update available
+        return 0
     fi
-
     return 0
 }
 
 step_validate_node() {
-    if ! NODE_NAME=$(get_node_name); then
+    local node_name
+    if ! node_name=$(get_node_name); then
         FAILURE_REASON="NODE_NAME_MISSING"
-
         log "Node name file missing or empty"
-
         local config_yaml="${CONFIG_DIR}/config.yaml"
         if [[ -f "$config_yaml" ]]; then
             local first_line=$(head -n 1 "$config_yaml" 2>/dev/null || echo "")
@@ -159,9 +179,9 @@ step_validate_node() {
                 FAILURE_REASON="${FAILURE_REASON} (${first_line})"
             fi
         fi
-
         return 1
     fi
+    NODE_NAME="$node_name"
     return 0
 }
 
@@ -169,16 +189,13 @@ step_download_package() {
     local remote_version="$1"
     local package_name="${NODE_NAME}_${remote_version}.zip.enc"
     local package_url="${UPDATE_SERVER}/${package_name}"
-
     TEMP_DIR=$(mktemp -d -t nebula-update-XXXXXX)
-
     log "Downloading encrypted package"
     if ! curl -s -u "${AUTH_USER}:${AUTH_PASS}" --connect-timeout 30 -o "${TEMP_DIR}/package.enc" "${package_url}"; then
         FAILURE_REASON="DOWNLOAD_FAILED"
         log "Package download failed"
         return 1
     fi
-
     log "Decrypting package"
     if ! step_decrypt_package "${TEMP_DIR}/package.enc" "${TEMP_DIR}/package.zip"; then
         FAILURE_REASON="DECRYPTION_FAILED"
@@ -186,32 +203,27 @@ step_download_package() {
         return 1
     fi
     rm -f "${TEMP_DIR}/package.enc"
-
     if ! unzip -q -d "${TEMP_DIR}" "${TEMP_DIR}/package.zip" 2>/dev/null; then
         FAILURE_REASON="INVALID_PACKAGE"
         log "Invalid or missing package"
         return 1
     fi
     rm -f "${TEMP_DIR}/package.zip"
-
     return 0
 }
 
 step_decrypt_package() {
     local encrypted_file="$1"
     local output_file="$2"
-
     if [[ ! -f "$encrypted_file" ]] || [[ ! -r "$encrypted_file" ]]; then
         log "ERROR: Encrypted file not found or not readable"
         return 1
     fi
-
     local file_size=$(stat -c%s "$encrypted_file" 2>/dev/null || stat -f%z "$encrypted_file" 2>/dev/null)
     if [[ $file_size -lt 16 ]]; then
         log "ERROR: Encrypted file too small"
         return 1
     fi
-
     if openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
         -in "$encrypted_file" \
         -out "$output_file" \
@@ -229,25 +241,20 @@ step_create_backup() {
     mkdir -p "${BACKUP_DIR}/config"
     mkdir -p "${BACKUP_DIR}/service"
     mkdir -p "${BACKUP_DIR}/exec"
-
     for unit in "${SERVICE_NAME}.service" "${SERVICE_NAME}-update.service" "${SERVICE_NAME}-update.timer"; do
         if [[ -f "${SERVICE_DIR}/${unit}" ]]; then
             cp -a "${SERVICE_DIR}/${unit}" "${BACKUP_DIR}/service/" 2>/dev/null || true
         fi
     done
-
     if [[ -d "${EXEC_DIR}" ]]; then
         cp -a "${EXEC_DIR}"/*.sh "${BACKUP_DIR}/exec/" 2>/dev/null || true
     fi
-
     if [[ -f "${NEBULA_BINARY}" ]]; then
         cp -a "${NEBULA_BINARY}" "${BACKUP_DIR}/exec/" 2>/dev/null || true
     fi
-
     if [[ -d "${CONFIG_DIR}" ]]; then
         cp -a "${CONFIG_DIR}/"* "${BACKUP_DIR}/config/" 2>/dev/null || true
     fi
-
     BACKUP_CREATED=true
     log "Backup created"
     return 0
@@ -255,26 +262,22 @@ step_create_backup() {
 
 step_apply_update() {
     local temp_dir="$1"
-
     cd "${temp_dir}" || {
         FAILURE_REASON="CANNOT_CD_TEMP"
         log "Cannot access temp directory"
         return 1
     }
-
     if [[ ! -f "./deploy.sh" ]]; then
         FAILURE_REASON="NO_DEPLOY_SCRIPT"
         log "Missing deploy.sh in package"
         return 1
     fi
-
     chmod +x ./deploy.sh
     if ! ./deploy.sh; then
         FAILURE_REASON="DEPLOY_FAILED"
         log "deploy.sh failed"
         return 1
     fi
-
     log "Update applied"
     return 0
 }
@@ -282,18 +285,14 @@ step_apply_update() {
 step_verify_update() {
     local expected_version="$1"
     local new_local_version
-
     sync
     sleep 1
-
     new_local_version=$(get_local_version)
-
     if [[ "$new_local_version" != "$expected_version" ]]; then
         FAILURE_REASON="VERIFICATION_FAILED"
         log "Version mismatch after update"
         return 1
     fi
-
     log "Update verified"
     return 0
 }
@@ -302,19 +301,15 @@ step_restore_backup() {
     if [[ "$BACKUP_CREATED" != true ]]; then
         return 0
     fi
-
     log "Restoring from backup"
-
     if [[ ! -d "${BACKUP_DIR}" ]]; then
         log "Backup directory not found"
         return 1
     fi
-
     systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
     sleep 2
     pkill -f "nebula .*${EXEC_DIR}/nebula" 2>/dev/null || true
     sleep 1
-
     if [[ -d "${BACKUP_DIR}/service" ]]; then
         for unit in "${BACKUP_DIR}/service"/*; do
             if [[ -f "$unit" ]]; then
@@ -323,25 +318,21 @@ step_restore_backup() {
         done
         systemctl daemon-reload 2>/dev/null || true
     fi
-
     if [[ -d "${BACKUP_DIR}/exec" ]]; then
         cp -a "${BACKUP_DIR}/exec"/*.sh "${EXEC_DIR}/" 2>/dev/null || true
     fi
-
     if [[ -f "${BACKUP_DIR}/exec/nebula" ]]; then
         cp -f "${BACKUP_DIR}/exec/nebula" "${NEBULA_BINARY}" 2>/dev/null || true
         chown nebula:nebula "${NEBULA_BINARY}" 2>/dev/null || true
         chmod 750 "${NEBULA_BINARY}" 2>/dev/null || true
         setcap cap_net_admin=+pe "${NEBULA_BINARY}" 2>/dev/null || true
     fi
-
     if [[ -d "${BACKUP_DIR}/config" ]]; then
         rm -rf "${CONFIG_DIR}"
         mkdir -p "${CONFIG_DIR}"
         cp -a "${BACKUP_DIR}/config/"* "${CONFIG_DIR}/" 2>/dev/null || true
         chown -R nebula:nebula "${CONFIG_DIR}" 2>/dev/null || true
     fi
-
     systemctl start "${SERVICE_NAME}.service" 2>/dev/null || true
     log "Backup restored"
     return 0
@@ -377,24 +368,18 @@ cleanup_backup() {
 report_result() {
     local result_code="$1"
     local result_text=""
-
-    # Use globals directly
-    local node_name="${NODE_NAME:-UNKNOWN}"
     local nebula_version=$(get_nebula_version)
-
     case $result_code in
         0) result_text="success" ;;
         1) result_text="no_update" ;;
         2) result_text="error" ;;
         3) result_text="interrupted" ;;
     esac
-
-    # Write status file
     local status_dir="/var/run/nebula/@@tun_device@@"
     mkdir -p "$status_dir"
     cat > "${status_dir}/update-status.json" << EOF
 {
-"node": "$node_name",
+"node": "$NODE_NAME",
 "result": "$result_text",
 "previous": "$OLD_VERSION",
 "current": "$REMOTE_VERSION",
@@ -403,10 +388,8 @@ report_result() {
 "timestamp": "$(date -Iseconds)"
 }
 EOF
-
     chmod 755 "$status_dir" 2>/dev/null || true
     chmod 644 "${status_dir}/update-status.json" 2>/dev/null || true
-
     if [[ -n "${NTFY_CHANNEL:-}" ]]; then
         local channel_clean=$(echo "${NTFY_CHANNEL}" | tr -d '[:space:]')
         if [[ -n "$channel_clean" ]]; then
@@ -414,7 +397,6 @@ EOF
             local message=""
             local tags=""
             local priority=""
-
             case $result_code in
                 0) 
                     message="Updated: ${OLD_VERSION} → ${REMOTE_VERSION}"$'\n'"Nebula: ${nebula_version}"
@@ -422,7 +404,6 @@ EOF
                     priority="3"
                     ;;
                 1) 
-                    # No update needed
                     ;;
                 2) 
                     if [[ -n "$REMOTE_VERSION" ]]; then
@@ -430,17 +411,15 @@ EOF
                     else
                         message="Update FAILED"
                     fi
-
-                    message="${message}"$'\n'"Reason: ${FAILURE_REASON}"
+                    message="${message}"$'\n'"Node: ${NODE_NAME}"$'\n'"Reason: ${FAILURE_REASON}"
                     message="${message}"$'\n'"Nebula: ${nebula_version}"
                     tags="warning"
                     priority="4"
                     ;;
             esac
-
             if [[ -n "$message" ]]; then
                 echo "$message" | \
-                    curl -H "Title: ${node_name} @ @@tun_device@@" \
+                    curl -H "Title: ${NODE_NAME} @ @@tun_device@@" \
                          -H "Tags:${tags}" \
                          -H "Priority:${priority}" \
                          --data-binary @- "${ntfy_url}" >/dev/null 2>&1 || true
@@ -456,31 +435,30 @@ EOF
 handle_interruption() {
     log "Update interrupted"
     FAILURE_REASON="INTERRUPTED"
-
     if [[ "$BACKUP_CREATED" == true ]]; then
         step_restore_backup
     fi
-
     cleanup_temp
     cleanup_backup
-
     report_result 3 "$(get_local_version)" "" "INTERRUPTED"
     exit 3
 }
 
 main() {
     trap 'handle_interruption' INT TERM
-
-    # Critical initialization (exit on failure)
     check_root
     load_configuration
     check_dependencies
-
+    NODE_NAME=$(get_node_name || echo "UNKNOWN")
+    if ! check_connectivity; then
+        report_result 2
+        log "Network connectivity check failed"
+        exit 2
+    fi
     OLD_VERSION=$(get_local_version)
 
     # Step 1: Check remote version
     if ! step_check_remote_version "$UPDATE_SERVER"; then
-        # This is a real error (server unreachable, auth failed)
         report_result 2
         log "Update failed: $FAILURE_REASON"
         exit 2
@@ -489,17 +467,16 @@ main() {
     # Check if we got a remote version
     if [[ -z "$REMOTE_VERSION" ]]; then
         log "No update available (no version.txt on server)"
-        report_result 1  # no_update
+        report_result 1
         exit 1
     fi
 
     # Check if update needed
     if [[ "$OLD_VERSION" == "$REMOTE_VERSION" ]]; then
         log "Already at version $OLD_VERSION"
-        report_result 1  # no_update
+        report_result 1
         exit 1
     fi
-
     log "Updating: $OLD_VERSION → $REMOTE_VERSION"
 
     # Step 2: Validate node name
@@ -550,7 +527,6 @@ main() {
     # Success
     cleanup_temp
     cleanup_backup
-
     log "Update completed"
     report_result 0 "$REMOTE_VERSION" ""
     exit 0
