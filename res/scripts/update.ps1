@@ -7,6 +7,7 @@
 # ----------------------------------------------------------------------------
 # Configuration and Paths
 # ----------------------------------------------------------------------------
+
 $ScriptDir = $PSScriptRoot
 if ([string]::IsNullOrEmpty($ScriptDir)) {
     $ScriptDir = Get-Location
@@ -24,11 +25,13 @@ $NebulaBinary = Join-Path $ScriptDir "nebula.exe"
 # ----------------------------------------------------------------------------
 # Global State
 # ----------------------------------------------------------------------------
+
 $Global:FAILURE_REASON = ""
 $Global:NODE_NAME = ""
 $Global:REMOTE_VERSION = ""
 $Global:OLD_VERSION = ""
 $Global:BACKUP_CREATED = $false
+$Global:config = @{}
 
 # ----------------------------------------------------------------------------
 # Core Functions (Critical - throw on failure)
@@ -160,6 +163,36 @@ function Decrypt-Package {
     }
 }
 
+function Test-NetworkConnectivity {
+    param([string]$Server)
+
+    $maxAttempts = 3
+    $attempt = 1
+
+    while ($attempt -le $maxAttempts) {
+        try {
+            $request = [System.Net.WebRequest]::Create($Server)
+            $request.Timeout = 5000
+            $request.Method = "HEAD"
+            $response = $request.GetResponse()
+            $response.Close()
+            Write-Log "Network connectivity check successful (attempt $attempt/$maxAttempts)" -Level "I"
+            return $true
+        }
+        catch {
+            if ($attempt -lt $maxAttempts) {
+                Write-Log "Network connectivity check failed (attempt $attempt/$maxAttempts)" -Level "W"
+                Start-Sleep -Seconds 2
+            }
+            $attempt++
+        }
+    }
+
+    $Global:FAILURE_REASON = "NETWORK_UNREACHABLE"
+    Write-Log "Network connectivity check failed after $maxAttempts attempts" -Level "E"
+    return $false
+}
+
 # ----------------------------------------------------------------------------
 # Update Steps
 # ----------------------------------------------------------------------------
@@ -168,58 +201,78 @@ function Step-CheckRemoteVersion {
     param([string]$Server, [string]$User, [string]$Pass)
 
     $versionUrl = "$Server/version.txt"
+    $maxRetries = 2
+    $retryCount = 0
 
-    try {
-        $credential = [System.Convert]::ToBase64String(
-            [System.Text.Encoding]::ASCII.GetBytes("${User}:${Pass}")
-        )
+    while ($retryCount -le $maxRetries) {
+        try {
+            $credential = [System.Convert]::ToBase64String(
+                [System.Text.Encoding]::ASCII.GetBytes("${User}:${Pass}")
+            )
 
-        $headers = @{ "Authorization" = "Basic $credential" }
+            $headers = @{ "Authorization" = "Basic $credential" }
 
-        $response = Invoke-WebRequest -Uri $versionUrl -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
+            $response = Invoke-WebRequest -Uri $versionUrl -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
 
-        if ($response.StatusCode -eq 200) {
-            $remoteVersion = $response.Content.Trim()
-            
-            if ([string]::IsNullOrEmpty($remoteVersion)) {
-                Write-Log "Empty version.txt on server" -Level "I"
+            if ($response.StatusCode -eq 200) {
+                $remoteVersion = $response.Content.Trim()
+                
+                if ([string]::IsNullOrEmpty($remoteVersion)) {
+                    Write-Log "Empty version.txt on server" -Level "I"
+                    $Global:REMOTE_VERSION = ""
+                    return $true
+                }
+
+                $Global:REMOTE_VERSION = $remoteVersion
+                Write-Log "Remote version: $remoteVersion" -Level "I"
+                return $true
+            }
+            else {
+                $Global:FAILURE_REASON = "SERVER_ERROR_$($response.StatusCode)"
+                Write-Log "HTTP error $($response.StatusCode) fetching remote version" -Level "E"
+                return $false
+            }
+        }
+        catch [System.Net.WebException] {
+            if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) {
                 $Global:REMOTE_VERSION = ""
                 return $true
             }
-
-            $Global:REMOTE_VERSION = $remoteVersion
-            Write-Log "Remote version: $remoteVersion" -Level "I"
-            return $true
+            elseif ($_.Exception.Response -and 
+                    ($_.Exception.Response.StatusCode.value__ -eq 401 -or 
+                     $_.Exception.Response.StatusCode.value__ -eq 403)) {
+                $Global:FAILURE_REASON = "AUTH_FAILED"
+                Write-Log "Authentication failed" -Level "E"
+                return $false
+            }
+            else {
+                if ($retryCount -lt $maxRetries) {
+                    Write-Log "Connection failed, retrying... (attempt $($retryCount + 1)/$maxRetries)" -Level "W"
+                    Start-Sleep -Seconds 3
+                    $retryCount++
+                    continue
+                }
+                $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+                Write-Log "Update server unreachable or error: $($_.Exception.Message)" -Level "E"
+                return $false
+            }
         }
-        else {
-            $Global:FAILURE_REASON = "SERVER_ERROR_$($response.StatusCode)"
-            Write-Log "HTTP error $($response.StatusCode) fetching remote version" -Level "E"
-            return $false
-        }
-    }
-    catch [System.Net.WebException] {
-        if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) {
-            $Global:REMOTE_VERSION = ""
-            return $true
-        }
-        elseif ($_.Exception.Response -and 
-                ($_.Exception.Response.StatusCode.value__ -eq 401 -or 
-                 $_.Exception.Response.StatusCode.value__ -eq 403)) {
-            $Global:FAILURE_REASON = "AUTH_FAILED"
-            Write-Log "Authentication failed" -Level "E"
-            return $false
-        }
-        else {
+        catch {
+            if ($retryCount -lt $maxRetries) {
+                Write-Log "Connection failed, retrying... (attempt $($retryCount + 1)/$maxRetries)" -Level "W"
+                Start-Sleep -Seconds 3
+                $retryCount++
+                continue
+            }
             $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
-            Write-Log "Update server unreachable or error: $($_.Exception.Message)" -Level "E"
+            Write-Log "Update server unreachable: $($_.Exception.Message)" -Level "E"
             return $false
         }
     }
-    catch {
-        $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
-        Write-Log "Update server unreachable: $($_.Exception.Message)" -Level "E"
-        return $false
-    }
+    
+    $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+    Write-Log "Update server unreachable after $maxRetries retries" -Level "E"
+    return $false
 }
 
 function Step-ValidateNode {
@@ -589,9 +642,9 @@ function Report-Result {
         Write-Log "WARNING: Could not write status file" -Level "W"
     }
 
-    if ($config.ContainsKey("NTFY_CHANNEL") -and -not [string]::IsNullOrEmpty($config.NTFY_CHANNEL)) {
+    if ($Global:config.ContainsKey("NTFY_CHANNEL") -and -not [string]::IsNullOrEmpty($Global:config.NTFY_CHANNEL)) {
         try {
-            $channel = $config.NTFY_CHANNEL.Trim()
+            $channel = $Global:config.NTFY_CHANNEL.Trim()
             if (-not [string]::IsNullOrEmpty($channel)) {
                 $ntfyUrl = "https://ntfy.sh/$channel"
                 $title = "$nodeName @ @@tun_device@@"
@@ -611,6 +664,7 @@ function Report-Result {
                             $body = "Update FAILED"
                         }
 
+                        $body += "`nNode: $nodeName"
                         $body += "`nReason: $($Global:FAILURE_REASON)"
 
                         switch -Wildcard ($Global:FAILURE_REASON) {
@@ -649,11 +703,27 @@ try {
     Write-Log "Nebula Auto-Update for Windows"
 
     # Core initialization
-    $config = Read-Config
+    $Global:config = Read-Config
+    
+    # Get node name early for reporting
+    $nodeName = Get-NodeName
+    if ([string]::IsNullOrEmpty($nodeName)) {
+        $Global:NODE_NAME = "UNKNOWN"
+    } else {
+        $Global:NODE_NAME = $nodeName
+    }
+
+    # Check network connectivity before proceeding
+    if (-not (Test-NetworkConnectivity -Server $Global:config.UPDATE_SERVER)) {
+        Report-Result -ResultCode 2
+        Write-Log "Network connectivity check failed" -Level "E"
+        exit 2
+    }
+
     $Global:OLD_VERSION = Get-LocalVersion
 
     # Step 1: Check remote version
-    if (-not (Step-CheckRemoteVersion -Server $config.UPDATE_SERVER -User $config.AUTH_USER -Pass $config.AUTH_PASS)) {
+    if (-not (Step-CheckRemoteVersion -Server $Global:config.UPDATE_SERVER -User $Global:config.AUTH_USER -Pass $Global:config.AUTH_PASS)) {
         Report-Result -ResultCode 2
         Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
         exit 2
@@ -674,7 +744,7 @@ try {
 
     Write-Log "Updating: $($Global:OLD_VERSION) to $($Global:REMOTE_VERSION)" -Level "I"
 
-    # Step 2: Validate node name
+    # Step 2: Validate node name (update variable)
     if (-not (Step-ValidateNode)) {
         Report-Result -ResultCode 2
         Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
@@ -682,7 +752,7 @@ try {
     }
 
     # Step 3: Download package
-    $packageDir = Step-DownloadPackage -Server $config.UPDATE_SERVER -User $config.AUTH_USER -Pass $config.AUTH_PASS -RemoteVersion $Global:REMOTE_VERSION -UpdatePass $config.UPDATE_PASS
+    $packageDir = Step-DownloadPackage -Server $Global:config.UPDATE_SERVER -User $Global:config.AUTH_USER -Pass $Global:config.AUTH_PASS -RemoteVersion $Global:REMOTE_VERSION -UpdatePass $Global:config.UPDATE_PASS
     if (-not $packageDir) {
         Report-Result -ResultCode 2
         Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
