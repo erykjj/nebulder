@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Fixed ntfy messages when network not yet up
+
 ### Removed
 
 ____
