@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v2.1.0'
+VERSION = 'v2.1.1'
 
 
 import argparse, ipaddress, json, re, secrets, shutil, string, yaml
@@ -69,7 +69,11 @@ def get_version(path):
 def cert_date(cert_path):
     arguments = ['nebula-cert', 'print', '-json', '-path', str(cert_path)]
     cert = run(arguments, stdout=PIPE, check=True)
-    cert_data = json.loads(cert.stdout)
+    cert_data = ''
+    try:
+        cert_data = json.loads(cert.stdout)[0]
+    except:
+        cert_data = json.loads(cert.stdout)
     not_after = cert_data['details']['notAfter']
     return not_after
 
