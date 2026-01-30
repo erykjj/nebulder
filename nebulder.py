@@ -356,9 +356,9 @@ def validate_names_and_ips(mesh):
             exit(1)
         try:
             ip_obj = ipaddress.IPv4Address(nebula_ip)
-            if not ip_obj.is_private:
-                cprint(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' is not a private IP!", color='red')
-                print('   Must be in ranges: 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16')
+            if not (ip_obj.is_private or (ip_obj >= ipaddress.IPv4Address('100.64.0.0') and ip_obj <= ipaddress.IPv4Address('100.127.255.255'))):
+                cprint(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' is not acceptable!", color='red')
+                print('   Must be in ranges: 10.0.0.0/8, 100.64.0.0/10, 172.16.0.0/12, or 192.168.0.0/16')
                 exit(1)
             last_octet = int(nebula_ip.split('.')[-1])
             if last_octet == 0 or last_octet == 255:
