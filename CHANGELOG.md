@@ -6,6 +6,8 @@
 
 ### Changed
 
+- Allows CGNAT IP range
+
 ### Fixed
 
 ### Removed
