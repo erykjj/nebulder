@@ -413,21 +413,44 @@ def validate_names_and_ips(mesh):
 
 def process_config(config_path, output_dir):
 
+    def load_passwords(mesh_name, outline_dir):
+        password_file = Path(outline_dir) / f'{mesh_name}_passwords.conf'
+        passwords = {}
+        if password_file.exists():
+            with open(password_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        if key and value:
+                            passwords[key] = value
+        return passwords, password_file
+
+    def save_passwords(password_file, passwords):
+        with open(password_file, 'w') as f:
+            for device_name, password in sorted(passwords.items()):
+                f.write(f'{device_name}={password}\n')
+
     def generate_password(length=16):
         alphabet = string.ascii_letters + string.digits
         return ''.join(secrets.choice(alphabet) for _ in range(length))
 
     def add_update_passwords():
+        passwords, password_file = load_passwords(mesh['tun_device'], Path(config_path).parent)
+        updated = False
         for device_type in ['lighthouses', 'nodes']:
             if device_type not in mesh:
                 continue
             for device in mesh[device_type]:
-                if 'update_password' not in device:
-                    device['update_password'] = generate_password()
-        header = '# WARNING: This file contains passwords for auto-update encryption\n\n'
-        with open(config_path, 'w') as f:
-            f.write(header)
-            yaml.dump(mesh, f, Dumper=yaml.dumper.SafeDumper, default_flow_style=False, sort_keys=False)
+                device_name = device['name']
+                if device_name not in passwords:
+                    passwords[device_name] = generate_password()
+                    updated = True
+                device['update_password'] = passwords[device_name]
+        if updated:
+            save_passwords(password_file, passwords)
 
     global mesh, root_path, conf_path, base_config, scripts, is_new, relays, lighthouse_ips
     with open(config_path) as f:
