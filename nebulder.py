@@ -445,6 +445,8 @@ def process_config(config_path, output_dir):
                 continue
             for device in mesh[device_type]:
                 device_name = device['name']
+                if device.get('os', 'linux') in ['android', 'ios']:
+                    continue
                 if device_name not in passwords:
                     passwords[device_name] = generate_password()
                     updated = True
