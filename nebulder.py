@@ -235,7 +235,7 @@ def create_device_config(dest_path, device_type, device_name, op_sys, device_ip,
         description = f"lighthouse '{device_name}'"
     else:
         description = f"node '{device_name}'"
-    header = f"# Nebula config for {op_sys} {description} on '{mesh['tun_device']}' mesh network device with IP {device_ip}\n\n"
+    header = f"# Nebula config for {op_sys} {description} (IP {device_ip}) on mesh network '{mesh['tun_device']}'\n\n"
     config_file.write_text(header)
     with config_file.open('a') as f:
         yaml.dump(config_data, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
