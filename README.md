@@ -14,7 +14,7 @@ The script has only been tested under Linux and the latest *nebula-cert* binary 
     - Indicate a web server with basic auth where each node will check for updates
     - If you want to receive notifications via *ntfy.sh*, provide the channel these notifications will be sent to
 3. Execute this *nebulder.py* script. It will generate the *config.yaml* interface configuration file and other necessary files for each device/node in its own deployment package/folder
-    - An update password will be automatically generated (if it doesn't already exist) for each Linux, macOS and Windows node/lighthouse; this will be used to encrypt the zipped update packages. These passwords will be stored in *passwords.conf* (in the same directory as the outline) - don't loose/modify these (unless you know what you are doing) since these are the passwords the nodes expect to decrypt their update packages
+    - An update password will be automatically generated (if it doesn't already exist) for each Linux, macOS and Windows node/lighthouse; this will be used to encrypt the zipped update packages. These passwords will be stored in *passwords.conf* (in the same directory as the outline) - don't loose/modify these (unless you know what you are doing) since these are the passwords the nodes expect to decrypt their update packages[^+]
 4. If installing *for the first time* (or updating the binaries), place the latest **binaries** from the [Nebula repo](https://github.com/slackhq/nebula/releases/latest) into each node's deployment folder[^#] - make sure they are for the correct OS/architecture:
     - Linux and macOS will need the *nebula* binary
     - Windows will need *nebula.exe* as well as the *dist* directory tree (*wintun.dll* driver)
@@ -65,4 +65,5 @@ Feel free to [get in touch and post any issues and suggestions](https://github.c
 
 ____
 [^*]: Due to changed paths, etc., if you are upgrading the nodes from v1, ensure you clean up their current installs first; otherwise, you may have conflicting services
+[^+]: Breaking changes introduced in [v2.2.0](https://github.com/erykjj/nebulder/releases/tag/v2.2.0)
 [^#]: The binaries (and the Windows *wintun* driver) only need to be in the package folder for initial deployment or if updating theses binaries on the node(s)
