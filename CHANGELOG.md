@@ -6,6 +6,14 @@
 
 ### Changed
 
+### Fixed
+
+### Removed
+
+____
+## [2.2.0] - 2026-01-30
+### Changed
+
 - **BREAKING CHANGES**
   - Update passwords are no longer added to the original outline, since updating it (without additional dependencies) removes comments, etc.
   - Instead, a `{mesh_name}_passwords.conf` file is created/updated in the same directory as the outline - containing *device name* and *password* key-value pairs
@@ -13,11 +21,6 @@
     - Then you can remove the `update_password` values from the outline (and regenerate update packages)
 - Allows CGNAT IP range
 
-### Fixed
-
-### Removed
-
-____
 ## [2.1.1] - 2026-01-16
 ### Changed
 
@@ -106,6 +109,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[2.2.0]: https://github.com/erykjj/nebulder/releases/tag/v2.2.0
 [2.1.1]: https://github.com/erykjj/nebulder/releases/tag/v2.1.1
 [2.1.0]: https://github.com/erykjj/nebulder/releases/tag/v2.1.0
 [2.0.0]: https://github.com/erykjj/nebulder/releases/tag/v2.0.0
