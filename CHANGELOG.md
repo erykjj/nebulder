@@ -6,6 +6,8 @@
 
 ### Changed
 
+- Added more delay and connectivity checks
+
 ### Fixed
 
 ### Removed
