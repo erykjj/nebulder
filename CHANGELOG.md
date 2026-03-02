@@ -14,7 +14,7 @@ ____
 ## [2.2.1] - 2026-03-02
 ### Changed
 
-- Added more delay and connectivity checks
+- Added more delay and connectivity checks for auto-updates
 
 ## [2.2.0] - 2026-01-30
 ### Changed
