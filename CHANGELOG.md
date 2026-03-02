@@ -6,13 +6,16 @@
 
 ### Changed
 
-- Added more delay and connectivity checks
-
 ### Fixed
 
 ### Removed
 
 ____
+## [2.2.1] - 2026-03-02
+### Changed
+
+- Added more delay and connectivity checks
+
 ## [2.2.0] - 2026-01-30
 ### Changed
 
@@ -111,6 +114,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[2.2.1]: https://github.com/erykjj/nebulder/releases/tag/v2.2.1
 [2.2.0]: https://github.com/erykjj/nebulder/releases/tag/v2.2.0
 [2.1.1]: https://github.com/erykjj/nebulder/releases/tag/v2.1.1
 [2.1.0]: https://github.com/erykjj/nebulder/releases/tag/v2.1.0
