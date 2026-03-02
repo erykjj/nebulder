@@ -116,19 +116,26 @@ trim_log() {
 }
 
 check_connectivity() {
-    local max_attempts=3
-    local attempt=1
+    local route_attempts=5
+    local route_wait=10
+    for ((i=1; i<=route_attempts; i++)); do
+        if netstat -rn | grep -q '^default'; then
+            break
+        fi
+        log "Waiting for default route ($i/$route_attempts)"
+        sleep $route_wait
+    done
 
+    local max_attempts=5
+    local attempt=1
     while [[ $attempt -le $max_attempts ]]; do
         if curl -s -I --connect-timeout 5 --max-time 10 "${UPDATE_SERVER}/" >/dev/null 2>&1; then
             return 0
         fi
-
         log "Network connectivity check failed (attempt $attempt/$max_attempts)"
-        sleep 2
+        sleep 20
         ((attempt++))
     done
-
     FAILURE_REASON="NETWORK_UNREACHABLE"
     return 1
 }
