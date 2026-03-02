@@ -163,6 +163,28 @@ function Decrypt-Package {
     }
 }
 
+function Test-NetworkReady {
+    param(
+        [int]$MaxAttempts = 5,
+        [int]$WaitSeconds = 10
+    )
+
+    Write-Log "Checking for network connectivity..." -Level "I"
+    for ($i = 1; $i -le $MaxAttempts; $i++) {
+        $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { 
+            $_.Status -eq "Up" -and $_.MediaType -ne "Unspecified"
+        }
+        if ($adapters) {
+            Write-Log "Network adapter(s) up: $($adapters.Name -join ', ')" -Level "I"
+            return $true
+        }
+        Write-Log "Waiting for network adapters ($i/$MaxAttempts)" -Level "W"
+        Start-Sleep -Seconds $WaitSeconds
+    }
+    Write-Log "No active network adapters found after $MaxAttempts attempts" -Level "W"
+    return $false
+}
+
 # ----------------------------------------------------------------------------
 # Update Steps
 # ----------------------------------------------------------------------------
@@ -674,7 +696,13 @@ try {
 
     # Core initialization
     $Global:config = Read-Config
-    
+
+    # Check network readiness
+    if (-not (Test-NetworkReady -MaxAttempts 5 -WaitSeconds 10)) {
+        Write-Log "Network not ready, will retry later" -Level "W"
+        exit 1
+    }
+
     # Get node name early for reporting
     $nodeName = Get-NodeName
     if ([string]::IsNullOrEmpty($nodeName)) {
