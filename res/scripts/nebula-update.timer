@@ -1,9 +1,11 @@
 [Unit]
 Description=Run updater for @@tun_device@@ every 15 minutes
+Wants=network-online.target
+After=network-online.target
 
 [Timer]
 OnCalendar=*:0/15
-OnBootSec=5min
+OnBootSec=7min
 RandomizedDelaySec=3m
 Persistent=true
 
