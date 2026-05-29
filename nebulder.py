@@ -123,9 +123,7 @@ def copy_files(dest_path, device, op_sys, lighthouse=False):
             service_path = dest_path / renamed
             service_path.write_text(scripts[service])
     elif op_sys == 'android' or op_sys == 'ios':
-        ca_qr_src = conf_path / f"{mesh['tun_device']}_ca.qr"
-        ca_qr_dest = dest_path / 'ca.qr'
-        shutil.copy(str(ca_qr_src), str(ca_qr_dest))
+        pass
     elif op_sys == 'macos':
         for script_name in ['deploy-mac.sh', 'remove-mac.sh', 'update-mac.sh']:
             renamed = re.sub('-mac', '', script_name)
@@ -162,10 +160,6 @@ def copy_files(dest_path, device, op_sys, lighthouse=False):
     run(arguments, check=True)
     if op_sys in ['linux', 'windows', 'macos']:
         run(['nebula-cert', 'print', '-path', str(host_crt)], stdout=PIPE, check=True)
-    else:
-        host_qr = dest_path / 'host.qr'
-        run(['nebula-cert', 'print', '-path', str(host_crt), '-out-qr', str(host_qr)], 
-            stdout=PIPE, check=True)
     print('   Added config.yaml and key files')
     cprint(f'   Certificate expires: {cert_date(host_crt)}', color='green')
 
@@ -292,12 +286,12 @@ def process_lighthouses():
             if host == lighthouse['nebula_ip']:
                 continue
             conf['static_host_map'][host] = list(relays[host])
-        node_file = path / 'node'
-        node_file.write_text(f"lighthouse_{lighthouse['name']}")
         create_device_config(
             path, 'lighthouse', lighthouse['name'], op_sys, lighthouse['nebula_ip'], conf
         )
         if op_sys not in ['android', 'ios']:
+            node_file = path / 'node'
+            node_file.write_text(f"lighthouse_{lighthouse['name']}")
             zip_package(f"lighthouse_{lighthouse['name']}", lighthouse['update_password'])
 
 def process_nodes():
@@ -324,12 +318,12 @@ def process_nodes():
         if 'advertise_addrs' in node:
             conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
         conf['relay'] = {'relays': lighthouse_ips}
-        node_file = path / 'node'
-        node_file.write_text(f"node_{node['name']}")
         create_device_config(
             path, 'node', node['name'], op_sys, node['nebula_ip'], conf
         )
         if op_sys not in ['android', 'ios']:
+            node_file = path / 'node'
+            node_file.write_text(f"node_{node['name']}")
             zip_package(f"node_{node['name']}", node['update_password'])
 
 def load_resources():
