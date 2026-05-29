@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v2.2.1'
+VERSION = 'v2.3.0'
 
 
 import argparse, ipaddress, json, re, secrets, shutil, string, yaml
@@ -230,6 +230,12 @@ def add_common_config(node, base_config):
     return base_config
 
 def create_device_config(dest_path, device_type, device_name, op_sys, device_ip, config_data):
+
+    def multi_line(dumper, string):
+        if string.count('\n') > 0:
+            return dumper.represent_scalar('tag:yaml.org,2002:str', string, style='|')
+        return dumper.represent_scalar('tag:yaml.org,2002:str', string)
+
     config_file = dest_path / 'config.yaml'
     if device_type == 'lighthouse':
         description = f"lighthouse '{device_name}'"
@@ -237,8 +243,15 @@ def create_device_config(dest_path, device_type, device_name, op_sys, device_ip,
         description = f"node '{device_name}'"
     header = f"# Nebula config for {op_sys} {description} (IP {device_ip}) on mesh network '{mesh['tun_device']}'\n\n"
     config_file.write_text(header)
+    if op_sys in ['android', 'ios']:
+        for t in [('ca.crt', 'ca'), ('host.crt', 'cert'), ('host.key', 'key')]:
+            with open(dest_path / t[0]) as f:
+                config_data['pki'][t[1]] = f.read()
+            Path(dest_path / t[0]).unlink()
+    yaml.add_representer(str, multi_line)
+    yaml.representer.SafeRepresenter.add_representer(str, multi_line)
     with config_file.open('a') as f:
-        yaml.dump(config_data, f, Dumper=yaml.dumper.SafeDumper, indent=2, sort_keys=False)
+        yaml.dump(config_data, f, indent=2, sort_keys=False)
 
 def process_lighthouses():
     if 'lighthouses' not in mesh:
