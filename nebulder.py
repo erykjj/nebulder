@@ -241,7 +241,7 @@ def create_device_config(dest_path, device_type, device_name, op_sys, device_ip,
         description = f"lighthouse '{device_name}'"
     else:
         description = f"node '{device_name}'"
-    header = f"# Nebula config for {op_sys} {description} (IP {device_ip}) on mesh network '{mesh['tun_device']}'\n\n"
+    header = f"# Nebula config for {op_sys} {description} (IP {device_ip}) on mesh network '{mesh['tun_device']}' [{args['V']}]\n\n"
     config_file.write_text(header)
     if op_sys in ['android', 'ios']:
         for t in [('ca.crt', 'ca'), ('host.crt', 'cert'), ('host.key', 'key')]:
