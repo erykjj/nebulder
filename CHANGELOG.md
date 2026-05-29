@@ -6,15 +6,19 @@
 
 ### Changed
 
-- Inline certs into config.yaml for mobile devices (iOS and Android) - NOTE: iOS **not** tested
-  - Don't generate QR for mobile
-- Add version info to config.yaml header
-
 ### Fixed
 
 ### Removed
 
 ____
+## [2.3.0] - 2026-05-29
+### Changed
+
+- Inline certs into config.yaml for mobile devices (iOS and Android)
+  - NOTE: iOS **not** tested
+- Don't generate QR for mobile
+- Add version info to config.yaml header
+
 ## [2.2.1] - 2026-03-02
 ### Changed
 
@@ -118,6 +122,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[2.3.0]: https://github.com/erykjj/nebulder/releases/tag/v2.3.0
 [2.2.1]: https://github.com/erykjj/nebulder/releases/tag/v2.2.1
 [2.2.0]: https://github.com/erykjj/nebulder/releases/tag/v2.2.0
 [2.1.1]: https://github.com/erykjj/nebulder/releases/tag/v2.1.1
