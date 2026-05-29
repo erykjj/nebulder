@@ -6,6 +6,8 @@
 
 ### Changed
 
+- Inline certs into config.yaml for mobile devices (iOS and Android)
+
 ### Fixed
 
 ### Removed
