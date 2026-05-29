@@ -6,7 +6,8 @@
 
 ### Changed
 
-- Inline certs into config.yaml for mobile devices (iOS and Android)
+- Inline certs into config.yaml for mobile devices (iOS and Android) - NOTE: iOS **not** tested
+  - Don't generate QR for mobile
 - Add version info to config.yaml header
 
 ### Fixed
