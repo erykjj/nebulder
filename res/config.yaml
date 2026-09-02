@@ -22,3 +22,6 @@ firewall:
     - port: any
       proto: icmp
       host: any
+
+static_map:
+  lookup_timeout: 10s
