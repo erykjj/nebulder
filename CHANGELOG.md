@@ -11,6 +11,11 @@
 ### Removed
 
 ____
+## [2.3.1] - 2026-09-02
+### Changed
+
+- Added lookup timeout to default config
+
 ## [2.3.0] - 2026-05-29
 ### Changed
 
@@ -122,6 +127,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[2.3.1]: https://github.com/erykjj/nebulder/releases/tag/v2.3.1
 [2.3.0]: https://github.com/erykjj/nebulder/releases/tag/v2.3.0
 [2.2.1]: https://github.com/erykjj/nebulder/releases/tag/v2.2.1
 [2.2.0]: https://github.com/erykjj/nebulder/releases/tag/v2.2.0
