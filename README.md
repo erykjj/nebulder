@@ -1,4 +1,4 @@
-# nebulder v2[^*]
+# nebulder
 
 Pronounced "NEH-byool-der" (/ˈnɛb.jʊl.dɚ/) - a composite of *Nebula* + *builder*
 
@@ -64,6 +64,5 @@ Feel free to [get in touch and post any issues and suggestions](https://github.c
 [![RSS of releases](res/rss-36.png)](https://github.com/erykjj/nebulder/releases.atom)
 
 ____
-[^*]: Due to changed paths, etc., if you are upgrading the nodes from v1, ensure you clean up their current installs first; otherwise, you may have conflicting services
 [^+]: Breaking changes introduced in [v2.2.0](https://github.com/erykjj/nebulder/releases/tag/v2.2.0)
 [^#]: The binaries (and the Windows *wintun* driver) only need to be in the package folder for initial deployment or if updating theses binaries on the node(s)
