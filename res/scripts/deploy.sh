@@ -27,6 +27,20 @@ if [[ ! -x "nebula" ]] && [[ ! -x "${EXEC_DIR}/nebula" ]]; then
     exit 1
 fi
 
+if [[ -f "update.conf" ]]; then
+    missing_deps=""
+    for cmd in curl unzip openssl awk grep sed; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing_deps="${missing_deps} ${cmd}"
+        fi
+    done
+    if [[ -n "${missing_deps}" ]]; then
+        echo -e "* ERROR: missing required dependencies for auto-update:${missing_deps}\n"
+        echo "  Install them via your distribution's package manager and re-run."
+        exit 1
+    fi
+fi
+
 if [[ -d "${CONFIG_DIR}" ]]; then
   echo "* Cleaning up previous settings"
   systemctl stop nebula_@@tun_device@@.service 2>/dev/null || true
