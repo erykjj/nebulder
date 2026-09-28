@@ -77,7 +77,7 @@ def cert_date(cert_path):
     not_after = cert_data['details']['notAfter']
     return not_after
 
-def generate_certificate_authority():
+def generate_certificate_authority(conf_path, mesh):
     ca_crt = conf_path / f"{mesh['tun_device']}_ca.crt"
     ca_key = conf_path / f"{mesh['tun_device']}_ca.private.key"
     cprint(f"Certificate authority for '{mesh['tun_device']}'", color='magenta', bold=True)
@@ -86,8 +86,8 @@ def generate_certificate_authority():
         print(f'   Skipping key generation')
         return False
     else:
-        run(['nebula-cert', 'ca', '-name', mesh['tun_device'], 
-             '-out-crt', str(ca_crt), 
+        run(['nebula-cert', 'ca', '-name', mesh['tun_device'],
+             '-out-crt', str(ca_crt),
              '-out-key', str(ca_key)], check=True)
         ca_qr = conf_path / f"{mesh['tun_device']}_ca.qr"
         run(['nebula-cert', 'print', '-path', str(ca_crt),
@@ -95,7 +95,7 @@ def generate_certificate_authority():
         cprint(f'   Certificate expires: {cert_date(ca_crt)}', color='green')
         return True
 
-def copy_files(dest_path, device, op_sys, lighthouse=False):
+def copy_files(dest_path, device, op_sys, conf_path, mesh, scripts, is_new, lighthouse=False):
     if lighthouse:
         cprint(f"\nDevice: lighthouse '{device['name']}' ({op_sys})", color='yellow', bold=True)
     else:
@@ -167,7 +167,7 @@ def copy_files(dest_path, device, op_sys, lighthouse=False):
     print('   Added config.yaml and key files')
     cprint(f'   Certificate expires: {cert_date(host_crt)}', color='green')
 
-def zip_package(archive_name, password):
+def zip_package(archive_name, password, root_path, version, zip_flag):
 
     def encrypt_file(input_path, output_path, password):
         import subprocess
@@ -176,10 +176,10 @@ def zip_package(archive_name, password):
 
     package_path = root_path / archive_name
     version_file = package_path / 'version'
-    version_file.write_text(args['V'] + '\n')
-    if not args['Z']:
+    version_file.write_text(version + '\n')
+    if not zip_flag:
         return
-    temp_zip = root_path / f"{archive_name}_{args['V']}.zip"
+    temp_zip = root_path / f"{archive_name}_{version}.zip"
     with ZipFile(temp_zip, 'w', compression=ZIP_DEFLATED) as zip_file:
         for file_path in package_path.rglob('*'):
             if file_path.is_file():
@@ -207,7 +207,7 @@ def process_firewall(firewall_rules):
             processed.append(inbound)
     return processed
 
-def add_common_config(node, base_config):
+def add_common_config(node, base_config, mesh):
     if node.get('os') == 'windows':
         p = r'C:\\nebula\\' + mesh['tun_device'] + r'\\'
     elif node.get('os') == 'macos':
@@ -227,7 +227,7 @@ def add_common_config(node, base_config):
         base_config['firewall']['inbound'] += inbound_rules
     return base_config
 
-def create_device_config(dest_path, device_type, device_name, op_sys, device_ip, config_data):
+def create_device_config(dest_path, device_type, device_name, op_sys, device_ip, config_data, mesh, version):
 
     def multi_line(dumper, string):
         if string.count('\n') > 0:
@@ -239,7 +239,7 @@ def create_device_config(dest_path, device_type, device_name, op_sys, device_ip,
         description = f"lighthouse '{device_name}'"
     else:
         description = f"node '{device_name}'"
-    header = f"# Nebula config for {op_sys} {description} (IP {device_ip}) on mesh network '{mesh['tun_device']}' [{args['V']}]\n\n"
+    header = f"# Nebula config for {op_sys} {description} (IP {device_ip}) on mesh network '{mesh['tun_device']}' [{version}]\n\n"
     config_file.write_text(header)
     if op_sys in ['android', 'ios']:
         for t in [('ca.crt', 'ca'), ('host.crt', 'cert'), ('host.key', 'key')]:
@@ -251,7 +251,7 @@ def create_device_config(dest_path, device_type, device_name, op_sys, device_ip,
     with config_file.open('a') as f:
         yaml.dump(config_data, f, indent=2, sort_keys=False)
 
-def process_lighthouses():
+def process_lighthouses(mesh, root_path, conf_path, scripts, base_config, relays, lighthouse_ips, is_new, version, zip_flag):
     if 'lighthouses' not in mesh:
         cprint('*** ERROR: No lighthouse defined!\n', color='red')
         exit()
@@ -278,10 +278,10 @@ def process_lighthouses():
     for lighthouse in mesh['lighthouses']:
         path = root_path / f"lighthouse_{lighthouse['name']}"
         op_sys = lighthouse.get('os', 'linux')
-        copy_files(path, lighthouse, op_sys, True)
+        copy_files(path, lighthouse, op_sys, conf_path, mesh, scripts, is_new, True)
         lighthouse_ips.append(lighthouse['nebula_ip'])
         conf = deepcopy(base_config)
-        conf = add_common_config(lighthouse, conf)
+        conf = add_common_config(lighthouse, conf, mesh)
         conf['listen'] = {'port': lighthouse['listen_port']}
         conf['lighthouse'] = {'am_lighthouse': True}
         conf['relay'] = {'am_relay': True, 'use_relays': False}
@@ -291,14 +291,14 @@ def process_lighthouses():
                 continue
             conf['static_host_map'][host] = list(relays[host])
         create_device_config(
-            path, 'lighthouse', lighthouse['name'], op_sys, lighthouse['nebula_ip'], conf
+            path, 'lighthouse', lighthouse['name'], op_sys, lighthouse['nebula_ip'], conf, mesh, version
         )
         if op_sys not in ['android', 'ios']:
             node_file = path / 'node'
             node_file.write_text(f"lighthouse_{lighthouse['name']}")
-            zip_package(f"lighthouse_{lighthouse['name']}", lighthouse['update_password'])
+            zip_package(f"lighthouse_{lighthouse['name']}", lighthouse['update_password'], root_path, version, zip_flag)
 
-def process_nodes():
+def process_nodes(mesh, root_path, conf_path, scripts, base_config, relays, lighthouse_ips, is_new, version, zip_flag):
     if 'nodes' not in mesh:
         cprint('*** No standard nodes defined! ***', color='red')
         return
@@ -312,9 +312,9 @@ def process_nodes():
     for node in mesh['nodes']:
         path = root_path / f"node_{node['name']}"
         op_sys = node.get('os', 'linux')
-        copy_files(path, node, op_sys)
+        copy_files(path, node, op_sys, conf_path, mesh, scripts, is_new)
         conf = deepcopy(base_config)
-        conf = add_common_config(node, conf)
+        conf = add_common_config(node, conf, mesh)
         conf['static_host_map'] = {}
         for host in relays:
             conf['static_host_map'][host] = list(relays[host])
@@ -323,19 +323,19 @@ def process_nodes():
             conf['lighthouse']['advertise_addrs'] = f"{node['advertise_addrs']}:0"
         conf['relay'] = {'relays': lighthouse_ips}
         create_device_config(
-            path, 'node', node['name'], op_sys, node['nebula_ip'], conf
+            path, 'node', node['name'], op_sys, node['nebula_ip'], conf, mesh, version
         )
         if op_sys not in ['android', 'ios']:
             node_file = path / 'node'
             node_file.write_text(f"node_{node['name']}")
-            zip_package(f"node_{node['name']}", node['update_password'])
+            zip_package(f"node_{node['name']}", node['update_password'], root_path, version, zip_flag)
 
 
 def publish_release(version, update_conf, root_path):
     repo = update_conf.get('GITHUB_REPO')
     token = update_conf.get('GITHUB_TOKEN')
     if not repo or not token:
-        return
+        return False
 
     api_base = f"https://api.github.com/repos/{repo}"
 
@@ -353,7 +353,7 @@ def publish_release(version, update_conf, root_path):
     lines = release_json.rsplit('\n', 1)
     if len(lines) != 2:
         cprint('*** ERROR: could not parse release lookup response', color='red')
-        return
+        return False
     body, status = lines[0], lines[1].strip()
     release_id = None
 
@@ -369,11 +369,11 @@ def publish_release(version, update_conf, root_path):
         c_lines = create_out.rsplit('\n', 1)
         if len(c_lines) != 2 or c_lines[1].strip() != '201':
             cprint(f'*** ERROR: failed to create release (HTTP {c_lines[1].strip() if len(c_lines)==2 else "?"})', color='red')
-            return
+            return False
         release_id = json.loads(c_lines[0])['id']
     else:
         cprint(f'*** ERROR: release lookup returned HTTP {status}', color='red')
-        return
+        return False
 
     existing = {}
     assets_json = curl([f'{api_base}/releases/{release_id}/assets?per_page=100'], capture=True)
@@ -413,6 +413,7 @@ def publish_release(version, update_conf, root_path):
     if failed:
         summary += f', {failed} failed'
     print(summary)
+    return failed == 0
 
 
 def load_resources():
@@ -443,7 +444,7 @@ def validate_names_and_ips(mesh):
             exit(1)
         used_names.add(name)
         return name
-    
+
     def process_device(device, device_type, index):
         device_name = validate_device_name(device.get('name'), f'{device_type} {index}')
         nebula_ip = device.get('nebula_ip')
@@ -597,7 +598,7 @@ def validate_update_conf(output_dir):
 
     return values
 
-def process_config(config_path, output_dir):
+def process_config(config_path, output_dir, zip_packages=False, version=None):
 
     def load_passwords(mesh_name, outline_dir):
         password_file = Path(outline_dir) / f'{mesh_name}_passwords.conf'
@@ -623,7 +624,7 @@ def process_config(config_path, output_dir):
         alphabet = string.ascii_letters + string.digits
         return ''.join(secrets.choice(alphabet) for _ in range(length))
 
-    def add_update_passwords():
+    def add_update_passwords(mesh, config_path):
         passwords, password_file = load_passwords(mesh['tun_device'], Path(config_path).parent)
         updated = False
         for device_type in ['lighthouses', 'nodes']:
@@ -640,7 +641,6 @@ def process_config(config_path, output_dir):
         if updated:
             save_passwords(password_file, passwords)
 
-    global mesh, root_path, conf_path, base_config, scripts, is_new, relays, lighthouse_ips
     with open(config_path) as f:
         mesh = yaml.load(f, Loader=yaml.loader.SafeLoader)
     tun_device, network_base, all_ips = validate_names_and_ips(mesh)
@@ -655,37 +655,54 @@ def process_config(config_path, output_dir):
     print(f'IP network: {network_base}')
     print(f'Total devices: {len(all_ips)}\n')
     update_conf = validate_update_conf(output_dir)
-    if not args['V']:
-        args['V'] = get_version(root_path)
+    if not version:
+        version = get_version(root_path)
     version_file = root_path / 'version.txt'
-    version_file.write_text(args['V'] + '\n')
+    version_file.write_text(version + '\n')
     base_config, scripts_dict = load_resources()
     for script_name in scripts_dict:
         scripts_dict[script_name] = scripts_dict[script_name].replace('@@tun_device@@', mesh['tun_device'])
     scripts = scripts_dict
-    is_new = generate_certificate_authority()
-    add_update_passwords()
+    is_new = generate_certificate_authority(conf_path, mesh)
+    add_update_passwords(mesh, config_path)
     relays = {}
     lighthouse_ips = []
-    process_lighthouses()
-    process_nodes()
-    if args['Z'] and update_conf.get('GITHUB_REPO'):
-        publish_release(args['V'], update_conf, root_path)
+    process_lighthouses(mesh, root_path, conf_path, scripts, base_config, relays, lighthouse_ips, is_new, version, zip_packages)
+    process_nodes(mesh, root_path, conf_path, scripts, base_config, relays, lighthouse_ips, is_new, version, zip_packages)
+    published = False
+    if zip_packages and update_conf.get('GITHUB_REPO'):
+        published = publish_release(version, update_conf, root_path)
     cprint('\nCompleted successfully', color='green')
     print(f'   Deployment packages in {root_path}\n')
     print('='*75)
     print()
 
+    return {
+        'output_path': root_path,
+        'tun_device': mesh['tun_device'],
+        'version': version,
+        'published': published,
+    }
 
-parser = argparse.ArgumentParser(description='Generate Nebula configs based on a network outline')
-parser.add_argument('-v', '--version', action='version', version=f'{APP} {VERSION}')
-parser.add_argument('outline', help='Network outline (YAML format)')
-parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where outline is located)')
-parser.add_argument('-Z', action='store_true', help='Zip and encrypt packages, and upload to GitHub if configured (for auto-update)')
-parser.add_argument('-V', metavar='id', help='Config version number or id (optional)')
-args = vars(parser.parse_args())
-if args['o']:
-    output_path = Path(args['o'].rstrip('/'))
-else:
-    output_path = Path(args['outline']).resolve().parent
-process_config(args['outline'], output_path)
+
+def main():
+    parser = argparse.ArgumentParser(description='Generate Nebula configs based on a network outline')
+    parser.add_argument('-v', '--version', action='version', version=f'{APP} {VERSION}')
+    parser.add_argument('outline', help='Network outline (YAML format)')
+    parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where outline is located)')
+    parser.add_argument('-Z', action='store_true', help='Zip and encrypt packages, and upload to GitHub if configured (for auto-update)')
+    parser.add_argument('-V', metavar='id', help='Config version number or id (optional)')
+    parsed = vars(parser.parse_args())
+    if parsed['o']:
+        output_path = Path(parsed['o'].rstrip('/'))
+    else:
+        output_path = Path(parsed['outline']).resolve().parent
+    process_config(
+        parsed['outline'],
+        output_path,
+        zip_packages=parsed['Z'],
+        version=parsed['V'],
+    )
+
+if __name__ == "__main__":
+    main()
