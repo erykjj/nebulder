@@ -418,6 +418,89 @@ def validate_names_and_ips(mesh):
             exit(1)
     return tun_device, network_base, all_ips
 
+def validate_update_conf(output_dir):
+
+    def parse_conf(conf_path):
+        values = {}
+        with open(conf_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+                values[key] = value
+        return values
+
+    conf_path = Path(output_dir) / 'update.conf'
+    if not conf_path.exists():
+        print('Update config: none (auto-update disabled)\n')
+        return
+
+    values = parse_conf(conf_path)
+    if not values:
+        cprint('*** ERROR: update.conf is empty!', color='red')
+        print('   Either populate it or remove it to skip auto-update')
+        exit(1)
+
+    errors = []
+
+    server = values.get('UPDATE_SERVER')
+    github = values.get('GITHUB_REPO')
+    primary = values.get('UPDATE_PRIMARY')
+
+    if not server and not github:
+        errors.append("At least one of UPDATE_SERVER or GITHUB_REPO is required")
+
+    if server:
+        if not values.get('AUTH_USER'):
+            errors.append("AUTH_USER required when UPDATE_SERVER is set")
+        if not values.get('AUTH_PASS'):
+            errors.append("AUTH_PASS required when UPDATE_SERVER is set")
+
+    if github:
+        if not re.match(r'^[^/]+/[^/]+$', github):
+            errors.append(f"GITHUB_REPO '{github}' invalid (must be 'owner/repo')")
+        if not values.get('GITHUB_TOKEN'):
+            errors.append("GITHUB_TOKEN required when GITHUB_REPO is set")
+
+    if primary:
+        if primary not in ('server', 'github'):
+            errors.append(f"UPDATE_PRIMARY '{primary}' invalid (must be 'server' or 'github')")
+        elif primary == 'server' and not server:
+            errors.append("UPDATE_PRIMARY is 'server' but UPDATE_SERVER is not set")
+        elif primary == 'github' and not github:
+            errors.append("UPDATE_PRIMARY is 'github' but GITHUB_REPO is not set")
+    else:
+        if server and github:
+            errors.append("UPDATE_PRIMARY required when both UPDATE_SERVER and GITHUB_REPO are set")
+
+    if 'UPDATE_PASS' in values:
+        errors.append("UPDATE_PASS must not be set in update.conf (added automatically per device)")
+
+    ntfy = values.get('NTFY_CHANNEL')
+    if ntfy and (re.search(r'\s', ntfy) or '/' in ntfy):
+        cprint(f'*** WARNING: NTFY_CHANNEL "{ntfy}" looks unusual', color='yellow')
+
+    if errors:
+        cprint('*** ERROR: invalid update.conf', color='red')
+        for e in errors:
+            print(f'   - {e}')
+        exit(1)
+
+    sources = []
+    if server:
+        sources.append('server')
+    if github:
+        sources.append('github')
+    primary_label = primary if primary else sources[0]
+    print(f'Update config OK (sources: {", ".join(sources)}, primary: {primary_label})\n')
+
 def process_config(config_path, output_dir):
 
     def load_passwords(mesh_name, outline_dir):
@@ -475,6 +558,7 @@ def process_config(config_path, output_dir):
     print(f'\nMesh network: {tun_device}')
     print(f'IP network: {network_base}')
     print(f'Total devices: {len(all_ips)}\n')
+    validate_update_conf(output_dir)
     if not args['V']:
         args['V'] = get_version(root_path)
     version_file = root_path / 'version.txt'
