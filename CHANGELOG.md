@@ -4,9 +4,13 @@
 
 ### Added
 
+- Use a private GitHub repo for updating
+
 ### Changed
 
 ### Fixed
+
+- Fix hardcoded network name in one of the Mac scripts
 
 ### Removed
 
