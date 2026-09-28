@@ -21,6 +21,7 @@ $ConfigFile = Join-Path $ScriptDir "update.conf"
 $LogFile = Join-Path $ScriptDir "update.log"
 $StatusFile = Join-Path $ScriptDir "update-status.json"
 $NebulaBinary = Join-Path $ScriptDir "nebula.exe"
+$ConnectivityProbe = "https://api.github.com"
 
 # ----------------------------------------------------------------------------
 # Global State
@@ -31,7 +32,11 @@ $Global:NODE_NAME = ""
 $Global:REMOTE_VERSION = ""
 $Global:OLD_VERSION = ""
 $Global:BACKUP_CREATED = $false
+$Global:SOURCE_USED = ""
+$Global:UPDATE_PRIMARY = ""
+$Global:UPDATE_SECONDARY = ""
 $Global:config = @{}
+$Global:GITHUB_RELEASE_JSON = $null
 
 # ----------------------------------------------------------------------------
 # Core Functions (Critical - throw on failure)
@@ -77,12 +82,49 @@ function Read-Config {
         }
     }
 
-    $required = @("UPDATE_SERVER", "AUTH_USER", "AUTH_PASS", "UPDATE_PASS")
-    foreach ($key in $required) {
-        if (-not $config.ContainsKey($key) -or [string]::IsNullOrEmpty($config[$key])) {
-            Write-Log "Missing required configuration: $key" -Level "E"
-            throw "Missing required configuration: $key"
+    $server = if ($config.ContainsKey("UPDATE_SERVER")) { $config["UPDATE_SERVER"] } else { "" }
+    $github = if ($config.ContainsKey("GITHUB_REPO")) { $config["GITHUB_REPO"] } else { "" }
+
+    if ([string]::IsNullOrEmpty($server) -and [string]::IsNullOrEmpty($github)) {
+        Write-Log "Neither UPDATE_SERVER nor GITHUB_REPO configured" -Level "E"
+        throw "No update source configured"
+    }
+
+    if (-not [string]::IsNullOrEmpty($server)) {
+        foreach ($key in @("AUTH_USER", "AUTH_PASS")) {
+            if (-not $config.ContainsKey($key) -or [string]::IsNullOrEmpty($config[$key])) {
+                Write-Log "$key required when UPDATE_SERVER is set" -Level "E"
+                throw "Missing required configuration: $key"
+            }
         }
+    }
+
+    if (-not [string]::IsNullOrEmpty($github)) {
+        if (-not $config.ContainsKey("UPDATE_TOKEN") -or [string]::IsNullOrEmpty($config["UPDATE_TOKEN"])) {
+            Write-Log "UPDATE_TOKEN required when GITHUB_REPO is set" -Level "E"
+            throw "Missing required configuration: UPDATE_TOKEN"
+        }
+    }
+
+    if (-not $config.ContainsKey("UPDATE_PASS") -or [string]::IsNullOrEmpty($config["UPDATE_PASS"])) {
+        Write-Log "UPDATE_PASS missing" -Level "E"
+        throw "Missing required configuration: UPDATE_PASS"
+    }
+
+    if (-not [string]::IsNullOrEmpty($server) -and -not [string]::IsNullOrEmpty($github)) {
+        $primary = if ($config.ContainsKey("UPDATE_PRIMARY")) { $config["UPDATE_PRIMARY"] } else { "" }
+        if ($primary -ne "server" -and $primary -ne "github") {
+            Write-Log "UPDATE_PRIMARY must be 'server' or 'github' when both sources are set" -Level "E"
+            throw "Invalid UPDATE_PRIMARY"
+        }
+        $Global:UPDATE_PRIMARY = $primary
+        $Global:UPDATE_SECONDARY = if ($primary -eq "server") { "github" } else { "server" }
+    } elseif (-not [string]::IsNullOrEmpty($server)) {
+        $Global:UPDATE_PRIMARY = "server"
+        $Global:UPDATE_SECONDARY = ""
+    } else {
+        $Global:UPDATE_PRIMARY = "github"
+        $Global:UPDATE_SECONDARY = ""
     }
 
     return $config
@@ -124,6 +166,297 @@ function Get-NebulaVersion {
     return "unknown"
 }
 
+function Test-NetworkReady {
+    param(
+        [int]$MaxAttempts = 5,
+        [int]$WaitSeconds = 10
+    )
+
+    Write-Log "Checking for network connectivity..." -Level "I"
+
+    $routeReady = $false
+    for ($i = 1; $i -le $MaxAttempts; $i++) {
+        $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {
+            $_.Status -eq "Up" -and $_.MediaType -ne "Unspecified"
+        }
+        if ($adapters) {
+            $routeReady = $true
+            break
+        }
+        Write-Log "Waiting for network adapters ($i/$MaxAttempts)" -Level "W"
+        Start-Sleep -Seconds $WaitSeconds
+    }
+
+    if (-not $routeReady) {
+        $Global:FAILURE_REASON = "NETWORK_UNREACHABLE"
+        Write-Log "No active network adapters" -Level "W"
+        return $false
+    }
+
+    $probeAttempts = 5
+    for ($i = 1; $i -le $probeAttempts; $i++) {
+        try {
+            Invoke-WebRequest -Uri "$ConnectivityProbe/" -Method Head -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop | Out-Null
+            return $true
+        }
+        catch {
+            Write-Log "Internet connectivity check failed (attempt $i/$probeAttempts)" -Level "W"
+            Start-Sleep -Seconds 20
+        }
+    }
+
+    $Global:FAILURE_REASON = "NETWORK_UNREACHABLE"
+    return $false
+}
+
+# ----------------------------------------------------------------------------
+# Source: Server
+# ----------------------------------------------------------------------------
+
+function Server-GetRemoteVersion {
+    param([string]$Server, [string]$User, [string]$Pass)
+
+    $versionUrl = "$Server/version.txt"
+    $maxRetries = 2
+    $retryCount = 0
+
+    while ($retryCount -le $maxRetries) {
+        try {
+            $credential = [System.Convert]::ToBase64String(
+                [System.Text.Encoding]::ASCII.GetBytes("${User}:${Pass}")
+            )
+            $headers = @{ "Authorization" = "Basic $credential" }
+
+            $response = Invoke-WebRequest -Uri $versionUrl -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
+
+            if ($response.StatusCode -eq 200) {
+                $remoteVersion = $response.Content.Trim()
+                $Global:REMOTE_VERSION = $remoteVersion
+                Write-Log "Remote version: $remoteVersion" -Level "I"
+                return $true
+            }
+            else {
+                $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+                Write-Log "HTTP error $($response.StatusCode) fetching remote version" -Level "E"
+                return $false
+            }
+        }
+        catch [System.Net.WebException] {
+            if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) {
+                $Global:REMOTE_VERSION = ""
+                return $true
+            }
+            elseif ($_.Exception.Response -and
+                    ($_.Exception.Response.StatusCode.value__ -eq 401 -or
+                     $_.Exception.Response.StatusCode.value__ -eq 403)) {
+                $Global:FAILURE_REASON = "AUTH_FAILED"
+                Write-Log "Authentication failed" -Level "E"
+                return $false
+            }
+            else {
+                if ($retryCount -lt $maxRetries) {
+                    Write-Log "Connection failed, retrying... (attempt $($retryCount + 1)/$maxRetries)" -Level "W"
+                    Start-Sleep -Seconds 3
+                    $retryCount++
+                    continue
+                }
+                $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+                Write-Log "Update server unreachable" -Level "E"
+                return $false
+            }
+        }
+        catch {
+            if ($retryCount -lt $maxRetries) {
+                Write-Log "Connection failed, retrying... (attempt $($retryCount + 1)/$maxRetries)" -Level "W"
+                Start-Sleep -Seconds 3
+                $retryCount++
+                continue
+            }
+            $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+            Write-Log "Update server unreachable: $($_.Exception.Message)" -Level "E"
+            return $false
+        }
+    }
+
+    $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+    return $false
+}
+
+function Server-DownloadPackage {
+    param([string]$Server, [string]$User, [string]$Pass, [string]$RemoteVersion, [string]$UpdatePass)
+
+    $packageName = "${Global:NODE_NAME}_${RemoteVersion}.zip.enc"
+    $packageUrl = "$Server/$packageName"
+    Write-Log "Downloading encrypted package (server): $packageName" -Level "I"
+
+    if (Test-Path $DownloadDir) {
+        Remove-Item -Path $DownloadDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    try {
+        New-Item -ItemType Directory -Path $DownloadDir -Force | Out-Null
+
+        $credential = [System.Convert]::ToBase64String(
+            [System.Text.Encoding]::ASCII.GetBytes("${User}:${Pass}")
+        )
+        $headers = @{ "Authorization" = "Basic $credential" }
+        $encryptedPath = Join-Path $DownloadDir $packageName
+
+        Invoke-WebRequest -Uri $packageUrl -Headers $headers -OutFile $encryptedPath -TimeoutSec 30 -ErrorAction Stop -UseBasicParsing
+
+        $zipPath = $encryptedPath -replace '\.enc$', ''
+
+        if (-not (Decrypt-Package -InputPath $encryptedPath -OutputPath $zipPath -Password $UpdatePass)) {
+            Write-Log "Failed to decrypt package" -Level "E"
+            return $null
+        }
+
+        Remove-Item -Path $encryptedPath -Force -ErrorAction SilentlyContinue
+        Expand-Archive -Path $zipPath -DestinationPath $DownloadDir -Force -ErrorAction Stop
+        Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
+
+        return $DownloadDir
+    }
+    catch {
+        $Global:FAILURE_REASON = "INVALID_PACKAGE"
+        Write-Log "Missing or invalid package on server" -Level "E"
+        return $null
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Source: GitHub
+# ----------------------------------------------------------------------------
+
+function GitHub-FetchRelease {
+    param([string]$Repo, [string]$Token)
+
+    $url = "https://api.github.com/repos/$Repo/releases/latest"
+    $maxRetries = 2
+    $retryCount = 0
+
+    while ($retryCount -le $maxRetries) {
+        try {
+            $headers = @{
+                "Authorization" = "Bearer $Token"
+                "Accept" = "application/vnd.github+json"
+            }
+
+            $response = Invoke-WebRequest -Uri $url -Headers $headers -TimeoutSec 15 -ErrorAction Stop -UseBasicParsing
+            $release = $response.Content | ConvertFrom-Json
+
+            if (-not $release.tag_name) {
+                $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+                Write-Log "Could not parse tag_name from GitHub response" -Level "E"
+                return $false
+            }
+
+            $Global:GITHUB_RELEASE_JSON = $release
+            $Global:REMOTE_VERSION = $release.tag_name
+            Write-Log "GitHub remote version: $($release.tag_name)" -Level "I"
+            return $true
+        }
+        catch [System.Net.WebException] {
+            $statusCode = 0
+            if ($_.Exception.Response) {
+                $statusCode = [int]$_.Exception.Response.StatusCode.value__
+            }
+
+            if ($statusCode -eq 401 -or $statusCode -eq 403 -or $statusCode -eq 404) {
+                $Global:FAILURE_REASON = "AUTH_FAILED"
+                Write-Log "GitHub authentication failed (HTTP $statusCode)" -Level "E"
+                return $false
+            }
+
+            if ($retryCount -lt $maxRetries) {
+                Write-Log "GitHub connection failed, retrying... (attempt $($retryCount + 1)/$maxRetries)" -Level "W"
+                Start-Sleep -Seconds 3
+                $retryCount++
+                continue
+            }
+
+            $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+            Write-Log "GitHub unreachable: $($_.Exception.Message)" -Level "E"
+            return $false
+        }
+        catch {
+            if ($retryCount -lt $maxRetries) {
+                Write-Log "GitHub connection failed, retrying... (attempt $($retryCount + 1)/$maxRetries)" -Level "W"
+                Start-Sleep -Seconds 3
+                $retryCount++
+                continue
+            }
+            $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+            Write-Log "GitHub unreachable: $($_.Exception.Message)" -Level "E"
+            return $false
+        }
+    }
+
+    $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
+    return $false
+}
+
+function GitHub-DownloadPackage {
+    param([string]$Repo, [string]$Token, [string]$RemoteVersion, [string]$UpdatePass)
+
+    $assetName = "${Global:NODE_NAME}_${RemoteVersion}.zip.enc"
+
+    $release = $Global:GITHUB_RELEASE_JSON
+    if (-not $release -or -not $release.assets) {
+        $Global:FAILURE_REASON = "ASSET_NOT_FOUND"
+        Write-Log "No assets in GitHub release $RemoteVersion" -Level "E"
+        return $null
+    }
+
+    $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
+
+    if (-not $asset) {
+        $Global:FAILURE_REASON = "ASSET_NOT_FOUND"
+        Write-Log "Asset '$assetName' not found in GitHub release $RemoteVersion" -Level "E"
+        return $null
+    }
+
+    if (Test-Path $DownloadDir) {
+        Remove-Item -Path $DownloadDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    try {
+        New-Item -ItemType Directory -Path $DownloadDir -Force | Out-Null
+
+        $headers = @{
+            "Authorization" = "Bearer $Token"
+            "Accept" = "application/octet-stream"
+        }
+
+        $encryptedPath = Join-Path $DownloadDir $assetName
+        Write-Log "Downloading encrypted package (github): $assetName" -Level "I"
+
+        Invoke-WebRequest -Uri $asset.url -Headers $headers -OutFile $encryptedPath -TimeoutSec 60 -ErrorAction Stop -UseBasicParsing
+
+        $zipPath = $encryptedPath -replace '\.enc$', ''
+
+        if (-not (Decrypt-Package -InputPath $encryptedPath -OutputPath $zipPath -Password $UpdatePass)) {
+            Write-Log "Failed to decrypt package" -Level "E"
+            return $null
+        }
+
+        Remove-Item -Path $encryptedPath -Force -ErrorAction SilentlyContinue
+        Expand-Archive -Path $zipPath -DestinationPath $DownloadDir -Force -ErrorAction Stop
+        Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
+
+        return $DownloadDir
+    }
+    catch {
+        $Global:FAILURE_REASON = "DOWNLOAD_FAILED"
+        Write-Log "Package download failed: $($_.Exception.Message)" -Level "E"
+        return $null
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Shared Package Handling
+# ----------------------------------------------------------------------------
+
 function Decrypt-Package {
     param([string]$InputPath, [string]$OutputPath, [string]$Password)
 
@@ -163,109 +496,9 @@ function Decrypt-Package {
     }
 }
 
-function Test-NetworkReady {
-    param(
-        [int]$MaxAttempts = 5,
-        [int]$WaitSeconds = 10
-    )
-
-    Write-Log "Checking for network connectivity..." -Level "I"
-    for ($i = 1; $i -le $MaxAttempts; $i++) {
-        $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { 
-            $_.Status -eq "Up" -and $_.MediaType -ne "Unspecified"
-        }
-        if ($adapters) {
-            Write-Log "Network adapter(s) up: $($adapters.Name -join ', ')" -Level "I"
-            return $true
-        }
-        Write-Log "Waiting for network adapters ($i/$MaxAttempts)" -Level "W"
-        Start-Sleep -Seconds $WaitSeconds
-    }
-    Write-Log "No active network adapters found after $MaxAttempts attempts" -Level "W"
-    return $false
-}
-
 # ----------------------------------------------------------------------------
 # Update Steps
 # ----------------------------------------------------------------------------
-
-function Step-CheckRemoteVersion {
-    param([string]$Server, [string]$User, [string]$Pass)
-
-    $versionUrl = "$Server/version.txt"
-    $maxRetries = 2
-    $retryCount = 0
-
-    while ($retryCount -le $maxRetries) {
-        try {
-            $credential = [System.Convert]::ToBase64String(
-                [System.Text.Encoding]::ASCII.GetBytes("${User}:${Pass}")
-            )
-
-            $headers = @{ "Authorization" = "Basic $credential" }
-
-            $response = Invoke-WebRequest -Uri $versionUrl -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
-
-            if ($response.StatusCode -eq 200) {
-                $remoteVersion = $response.Content.Trim()
-                
-                if ([string]::IsNullOrEmpty($remoteVersion)) {
-                    Write-Log "Empty version.txt on server" -Level "I"
-                    $Global:REMOTE_VERSION = ""
-                    return $true
-                }
-
-                $Global:REMOTE_VERSION = $remoteVersion
-                Write-Log "Remote version: $remoteVersion" -Level "I"
-                return $true
-            }
-            else {
-                $Global:FAILURE_REASON = "SERVER_ERROR_$($response.StatusCode)"
-                Write-Log "HTTP error $($response.StatusCode) fetching remote version" -Level "E"
-                return $false
-            }
-        }
-        catch [System.Net.WebException] {
-            if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) {
-                $Global:REMOTE_VERSION = ""
-                return $true
-            }
-            elseif ($_.Exception.Response -and 
-                    ($_.Exception.Response.StatusCode.value__ -eq 401 -or 
-                     $_.Exception.Response.StatusCode.value__ -eq 403)) {
-                $Global:FAILURE_REASON = "AUTH_FAILED"
-                Write-Log "Authentication failed" -Level "E"
-                return $false
-            }
-            else {
-                if ($retryCount -lt $maxRetries) {
-                    Write-Log "Connection failed, retrying... (attempt $($retryCount + 1)/$maxRetries)" -Level "W"
-                    Start-Sleep -Seconds 3
-                    $retryCount++
-                    continue
-                }
-                $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
-                Write-Log "Update server unreachable or error: $($_.Exception.Message)" -Level "E"
-                return $false
-            }
-        }
-        catch {
-            if ($retryCount -lt $maxRetries) {
-                Write-Log "Connection failed, retrying... (attempt $($retryCount + 1)/$maxRetries)" -Level "W"
-                Start-Sleep -Seconds 3
-                $retryCount++
-                continue
-            }
-            $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
-            Write-Log "Update server unreachable: $($_.Exception.Message)" -Level "E"
-            return $false
-        }
-    }
-    
-    $Global:FAILURE_REASON = "SERVER_UNREACHABLE"
-    Write-Log "Update server unreachable after $maxRetries retries" -Level "E"
-    return $false
-}
 
 function Step-ValidateNode {
     $nodeName = Get-NodeName
@@ -286,49 +519,6 @@ function Step-ValidateNode {
 
     $Global:NODE_NAME = $nodeName
     return $true
-}
-
-function Step-DownloadPackage {
-    param([string]$Server, [string]$User, [string]$Pass, [string]$RemoteVersion, [string]$UpdatePass)
-
-    $packageName = "${Global:NODE_NAME}_${RemoteVersion}.zip.enc"
-    $packageUrl = "$Server/$packageName"
-    Write-Log "Downloading encrypted package: $packageName" -Level "I"
-
-    if (Test-Path $DownloadDir) {
-        Remove-Item -Path $DownloadDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
-
-    try {
-        New-Item -ItemType Directory -Path $DownloadDir -Force | Out-Null
-
-        $credential = [System.Convert]::ToBase64String(
-            [System.Text.Encoding]::ASCII.GetBytes("${User}:${Pass}")
-        )
-
-        $headers = @{ "Authorization" = "Basic $credential" }
-        $encryptedPath = Join-Path $DownloadDir $packageName
-
-        Invoke-WebRequest -Uri $packageUrl -Headers $headers -OutFile $encryptedPath -TimeoutSec 30 -ErrorAction Stop -UseBasicParsing
-
-        $zipPath = $encryptedPath -replace '\.enc$', ''
-
-        if (-not (Decrypt-Package -InputPath $encryptedPath -OutputPath $zipPath -Password $UpdatePass)) {
-            Write-Log "Failed to decrypt package" -Level "E"
-            return $null
-        }
-
-        Remove-Item -Path $encryptedPath -Force -ErrorAction SilentlyContinue
-        Expand-Archive -Path $zipPath -DestinationPath $DownloadDir -Force -ErrorAction Stop
-        Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
-
-        return $DownloadDir
-    }
-    catch {
-        $Global:FAILURE_REASON = "INVALID_PACKAGE"
-        Write-Log "Missing or invalid package on server" -Level "E"
-        return $null
-    }
 }
 
 function Step-ValidateDeploymentPackage {
@@ -392,7 +582,7 @@ function Get-SystemArchitecture {
     }
     try {
         $envVar = [Environment]::GetEnvironmentVariable("PROCESSOR_ARCHITECTURE", "Machine")
-        
+
         switch ($envVar) {
             "ARM64" { return "arm64" }
             "AMD64" { return "amd64" }
@@ -575,7 +765,6 @@ function Step-CheckService {
                 return $true
             } else {
                 Write-Log "Nebula service exists but is $($service.Status)" -Level "W"
-                Write-Log "Service may need manual start or configuration check" -Level "W"
                 return $false
             }
         } else {
@@ -603,6 +792,29 @@ function Cleanup-Temp {
     }
 }
 
+function Send-Ntfy {
+    param([string]$Priority, [string]$Tags, [string]$Message)
+
+    if (-not $Global:config.ContainsKey("NTFY_CHANNEL") -or [string]::IsNullOrEmpty($Global:config.NTFY_CHANNEL)) {
+        return
+    }
+
+    try {
+        $channel = $Global:config.NTFY_CHANNEL.Trim()
+        if ([string]::IsNullOrEmpty($channel)) { return }
+
+        $ntfyUrl = "https://ntfy.sh/$channel"
+        $title = "$($Global:NODE_NAME) @ @@tun_device@@"
+
+        Invoke-RestMethod -Uri $ntfyUrl -Method Post -Body $Message `
+            -Headers @{ Title = $title; Tags = $Tags; Priority = $Priority } `
+            -ErrorAction SilentlyContinue | Out-Null
+    }
+    catch {
+        Write-Log "WARNING: Failed to send ntfy.sh notification" -Level "W"
+    }
+}
+
 function Report-Result {
     param([int]$ResultCode)
 
@@ -610,9 +822,11 @@ function Report-Result {
     $nebulaVersion = Get-NebulaVersion
 
     switch ($ResultCode) {
-        0 { $resultText = "updated" }
+        0 { $resultText = "success" }
         1 { $resultText = "no_update" }
         2 { $resultText = "error" }
+        3 { $resultText = "interrupted" }
+        4 { $resultText = "offline" }
         default { $resultText = "unknown" }
     }
 
@@ -622,8 +836,9 @@ function Report-Result {
         previous = $Global:OLD_VERSION
         current = $Global:REMOTE_VERSION
         nebula = $nebulaVersion
+        source = $Global:SOURCE_USED
         failure_reason = $Global:FAILURE_REASON
-        timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
+        timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
     }
 
     try {
@@ -634,53 +849,24 @@ function Report-Result {
         Write-Log "WARNING: Could not write status file" -Level "W"
     }
 
-    if ($Global:config.ContainsKey("NTFY_CHANNEL") -and -not [string]::IsNullOrEmpty($Global:config.NTFY_CHANNEL)) {
-        try {
-            $channel = $Global:config.NTFY_CHANNEL.Trim()
-            if (-not [string]::IsNullOrEmpty($channel)) {
-                $ntfyUrl = "https://ntfy.sh/$channel"
-                $title = "$nodeName @ @@tun_device@@"
-
-                switch ($ResultCode) {
-                    0 {  # SUCCESS
-                        $tags = "white_check_mark"
-                        $priority = 3
-                        $body = "Updated from $($Global:OLD_VERSION) --> $($Global:REMOTE_VERSION)`nNebula version: $nebulaVersion"
-                    }
-                    2 {  # ERROR
-                        $tags = "warning"
-                        $priority = 4
-                        if ($Global:REMOTE_VERSION) {
-                            $body = "Update to $($Global:REMOTE_VERSION) FAILED"
-                        } else {
-                            $body = "Update FAILED"
-                        }
-
-                        $body += "`nNode: $nodeName"
-                        $body += "`nReason: $($Global:FAILURE_REASON)"
-
-                        switch -Wildcard ($Global:FAILURE_REASON) {
-                            "*MISSING_NEBULA*" { $body += " (Missing nebula.exe binary)" }
-                            "*MISSING_WINTUN*" { $body += " (Missing wintun.dll driver)" }
-                            "*WRONG_WINTUN_ARCH*" { $body += " (Wrong architecture wintun.dll)" }
-                            "*MISSING_CONFIG*" { $body += " (Missing config.yaml)" }
-                            "*NODE_NAME_MISSING*" { $body += " (Missing node name file)" }
-                            "*INVALID_PACKAGE*" { $body += " (Missing or invalid package)" }
-                        }
-
-                        $body += "`nNebula: $nebulaVersion"
-                    }
-                }
-
-                if ($body) {
-                    Invoke-RestMethod -Uri $ntfyUrl -Method Post -Body $body `
-                        -Headers @{ Title = $title; Tags = $tags; Priority = $priority } `
-                        -ErrorAction SilentlyContinue | Out-Null
-                }
-            }
+    switch ($ResultCode) {
+        0 {
+            $msg = "Updated: $($Global:OLD_VERSION) --> $($Global:REMOTE_VERSION)`nSource: $($Global:SOURCE_USED)`nNebula: $nebulaVersion"
+            Send-Ntfy -Priority 3 -Tags "white_check_mark" -Message $msg
         }
-        catch {
-            Write-Log "WARNING: Failed to send ntfy.sh notification" -Level "W"
+        2 {
+            if ($Global:REMOTE_VERSION) {
+                $msg = "Update to $($Global:REMOTE_VERSION) FAILED"
+            } else {
+                $msg = "Update FAILED"
+            }
+            $msg += "`nNode: $nodeName"
+            $msg += "`nReason: $($Global:FAILURE_REASON)"
+            if ($Global:SOURCE_USED) {
+                $msg += "`nSource: $($Global:SOURCE_USED)"
+            }
+            $msg += "`nNebula: $nebulaVersion"
+            Send-Ntfy -Priority 4 -Tags "warning" -Message $msg
         }
     }
 }
@@ -689,21 +875,43 @@ function Report-Result {
 # Main Control Flow
 # ----------------------------------------------------------------------------
 
+function Invoke-TrySourceVersion {
+    param([string]$Source)
+
+    $Global:FAILURE_REASON = ""
+    $Global:REMOTE_VERSION = ""
+
+    if ($Source -eq "server") {
+        return Server-GetRemoteVersion -Server $Global:config.UPDATE_SERVER -User $Global:config.AUTH_USER -Pass $Global:config.AUTH_PASS
+    } else {
+        return GitHub-FetchRelease -Repo $Global:config.GITHUB_REPO -Token $Global:config.UPDATE_TOKEN
+    }
+}
+
+function Invoke-TrySourceDownload {
+    param([string]$Source, [string]$Version)
+
+    if ($Source -eq "server") {
+        return Server-DownloadPackage -Server $Global:config.UPDATE_SERVER -User $Global:config.AUTH_USER -Pass $Global:config.AUTH_PASS -RemoteVersion $Version -UpdatePass $Global:config.UPDATE_PASS
+    } else {
+        return GitHub-DownloadPackage -Repo $Global:config.GITHUB_REPO -Token $Global:config.UPDATE_TOKEN -RemoteVersion $Version -UpdatePass $Global:config.UPDATE_PASS
+    }
+}
+
 try {
-    # Initialize
     Initialize-Logging
     Write-Log "Nebula Auto-Update for Windows"
 
-    # Core initialization
     $Global:config = Read-Config
 
-    # Check network readiness
     if (-not (Test-NetworkReady -MaxAttempts 5 -WaitSeconds 10)) {
-        Write-Log "Network not ready, will retry later" -Level "W"
-        exit 1
+        Write-Log "Node offline - will retry next cycle" -Level "W"
+        $Global:NODE_NAME = (Get-NodeName)
+        if ([string]::IsNullOrEmpty($Global:NODE_NAME)) { $Global:NODE_NAME = "UNKNOWN" }
+        Report-Result -ResultCode 4
+        exit 0
     }
 
-    # Get node name early for reporting
     $nodeName = Get-NodeName
     if ([string]::IsNullOrEmpty($nodeName)) {
         $Global:NODE_NAME = "UNKNOWN"
@@ -713,16 +921,39 @@ try {
 
     $Global:OLD_VERSION = Get-LocalVersion
 
-    # Step 1: Check remote version
-    if (-not (Step-CheckRemoteVersion -Server $Global:config.UPDATE_SERVER -User $Global:config.AUTH_USER -Pass $Global:config.AUTH_PASS)) {
-        Report-Result -ResultCode 2
-        Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
-        exit 2
+    # ------------------------------------------------------------------------
+    # Try primary source, fall back to secondary
+    # ------------------------------------------------------------------------
+    $primary = $Global:UPDATE_PRIMARY
+    $secondary = $Global:UPDATE_SECONDARY
+
+    $Global:SOURCE_USED = $primary
+    $versionOk = Invoke-TrySourceVersion -Source $primary
+
+    if (-not $versionOk) {
+        if (-not [string]::IsNullOrEmpty($secondary)) {
+            Write-Log "Primary source ($primary) failed: $($Global:FAILURE_REASON) - trying $secondary" -Level "W"
+            Send-Ntfy -Priority 2 -Tags "warning" -Message "Primary source ($primary) failed: $($Global:FAILURE_REASON)`nTrying $secondary"
+            $Global:FAILURE_REASON = ""
+            $Global:SOURCE_USED = $secondary
+            $versionOk = Invoke-TrySourceVersion -Source $secondary
+            if (-not $versionOk) {
+                Report-Result -ResultCode 2
+                Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
+                exit 2
+            }
+        } else {
+            Report-Result -ResultCode 2
+            Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
+            exit 2
+        }
     }
 
-    # Check if update needed
+    # ------------------------------------------------------------------------
+    # Evaluate version
+    # ------------------------------------------------------------------------
     if ([string]::IsNullOrEmpty($Global:REMOTE_VERSION)) {
-        Write-Log "No update available (no version.txt on server)" -Level "I"
+        Write-Log "No update available (no version on $($Global:SOURCE_USED))" -Level "I"
         Report-Result -ResultCode 1
         exit 1
     }
@@ -733,18 +964,25 @@ try {
         exit 1
     }
 
-    Write-Log "Updating: $($Global:OLD_VERSION) to $($Global:REMOTE_VERSION)" -Level "I"
+    Write-Log "Updating: $($Global:OLD_VERSION) to $($Global:REMOTE_VERSION) (via $($Global:SOURCE_USED))" -Level "I"
 
-    # Step 2: Validate node name (update variable)
+    # ------------------------------------------------------------------------
+    # Validate node name
+    # ------------------------------------------------------------------------
     if (-not (Step-ValidateNode)) {
         Report-Result -ResultCode 2
         Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
         exit 2
     }
 
-    # Step 3: Download package
-    $packageDir = Step-DownloadPackage -Server $Global:config.UPDATE_SERVER -User $Global:config.AUTH_USER -Pass $Global:config.AUTH_PASS -RemoteVersion $Global:REMOTE_VERSION -UpdatePass $Global:config.UPDATE_PASS
+    # ------------------------------------------------------------------------
+    # Download (no fallback on ASSET_NOT_FOUND)
+    # ------------------------------------------------------------------------
+    $packageDir = Invoke-TrySourceDownload -Source $Global:SOURCE_USED -Version $Global:REMOTE_VERSION
     if (-not $packageDir) {
+        if ($Global:FAILURE_REASON -eq "ASSET_NOT_FOUND") {
+            Write-Log "Asset not found in release - not falling back" -Level "E"
+        }
         Report-Result -ResultCode 2
         Write-Log "Update failed: $($Global:FAILURE_REASON)" -Level "E"
         exit 2
@@ -757,7 +995,9 @@ try {
         exit 2
     }
 
-    # Step 4: Create backup
+    # ------------------------------------------------------------------------
+    # Backup
+    # ------------------------------------------------------------------------
     if (-not (Step-CreateBackup)) {
         Cleanup-Temp
         Report-Result -ResultCode 2
@@ -765,7 +1005,9 @@ try {
         exit 2
     }
 
-    # Step 5: Apply update
+    # ------------------------------------------------------------------------
+    # Apply
+    # ------------------------------------------------------------------------
     if (-not (Step-ApplyUpdate -PackageDir $packageDir)) {
         Step-RestoreBackup
         Cleanup-Temp
@@ -774,7 +1016,9 @@ try {
         exit 2
     }
 
-    # Step 6: Verify update
+    # ------------------------------------------------------------------------
+    # Verify
+    # ------------------------------------------------------------------------
     if (-not (Step-VerifyUpdate -ExpectedVersion $Global:REMOTE_VERSION)) {
         Step-RestoreBackup
         Cleanup-Temp
@@ -783,15 +1027,12 @@ try {
         exit 2
     }
 
-    # Step 7: Check service (warning only)
     $serviceCheck = Step-CheckService
     if (-not $serviceCheck) {
         Write-Log "Service check warning - verify Nebula service manually" -Level "W"
     }
 
-    # Success
     Cleanup-Temp
-
     Write-Log "Update completed" -Level "OK"
     Report-Result -ResultCode 0
     exit 0
