@@ -75,8 +75,8 @@ if [[ -f "./update.sh" ]]; then
 fi
 
 if [[ -f "./update.conf" ]]; then
-    if [[ -f "./nebula_nebula10-update.plist" ]]; then
-        install -m 644 "./nebula_nebula10-update.plist" "${LAUNCH_DAEMONS_DIR}/"
+    if [[ -f "./nebula_@@tun_device@@-update.plist" ]]; then
+        install -m 644 "./nebula_@@tun_device@@-update.plist" "${LAUNCH_DAEMONS_DIR}/"
         if launchctl list | grep -q "${SERVICE_NAME}-update"; then
             echo "  Update service loaded"
         else
