@@ -15,37 +15,80 @@ EXEC_DIR="/usr/local/lib/nebula/@@tun_device@@"
 NEBULA_BINARY="${EXEC_DIR}/nebula"
 UPDATE_SCRIPT="${EXEC_DIR}/update.sh"
 CONFIG_DIR="/usr/local/etc/nebula/@@tun_device@@"
+CONFIG_FILE="${CONFIG_DIR}/update.conf"
 LOCAL_VERSION_FILE="${CONFIG_DIR}/version"
-LOCAL_NODE_FILE="${CONFIG_DIR}/node"
+LOCAL_NODE_FILE="${LOCAL_NODE_FILE:-${CONFIG_DIR}/node}"
 BACKUP_DIR="/var/backups/@@tun_device@@"
 SERVICE_NAME="nebula_@@tun_device@@"
+CONNECTIVITY_PROBE="https://api.github.com"
 
 # ----------------------------------------------------------------------------
 # Global State
 # ----------------------------------------------------------------------------
 FAILURE_REASON=""
 NODE_NAME=""
+OLD_VERSION=""
 REMOTE_VERSION=""
 TEMP_DIR=""
 BACKUP_CREATED=false
-OLD_VERSION=""
+SOURCE_USED=""
+UPDATE_PRIMARY=""
+UPDATE_SECONDARY=""
 
 # ----------------------------------------------------------------------------
 # Core Functions (Critical - exit on failure)
 # ----------------------------------------------------------------------------
 
 load_configuration() {
-    CONFIG_FILE="${CONFIG_DIR}/update.conf"
     if [[ ! -f "${CONFIG_FILE}" ]]; then
         echo "ERROR: Configuration file not found: ${CONFIG_FILE}" >&2
         exit 1
     fi
-
     source "${CONFIG_FILE}"
 
-    if [[ -z "${UPDATE_SERVER:-}" || -z "${AUTH_USER:-}" || -z "${AUTH_PASS:-}" || -z "${UPDATE_PASS:-}" ]]; then
-        echo "ERROR: Missing required configuration in ${CONFIG_FILE}" >&2
+    local server="${UPDATE_SERVER:-}"
+    local github="${GITHUB_REPO:-}"
+
+    if [[ -z "${server}" && -z "${github}" ]]; then
+        echo "ERROR: Neither UPDATE_SERVER nor GITHUB_REPO configured in ${CONFIG_FILE}" >&2
         exit 1
+    fi
+
+    if [[ -n "${server}" ]]; then
+        if [[ -z "${AUTH_USER:-}" || -z "${AUTH_PASS:-}" ]]; then
+            echo "ERROR: AUTH_USER and AUTH_PASS required when UPDATE_SERVER is set" >&2
+            exit 1
+        fi
+    fi
+
+    if [[ -n "${github}" ]]; then
+        if [[ -z "${UPDATE_TOKEN:-}" ]]; then
+            echo "ERROR: UPDATE_TOKEN required when GITHUB_REPO is set" >&2
+            exit 1
+        fi
+    fi
+
+    if [[ -z "${UPDATE_PASS:-}" ]]; then
+        echo "ERROR: UPDATE_PASS missing in ${CONFIG_FILE}" >&2
+        exit 1
+    fi
+
+    if [[ -n "${server}" && -n "${github}" ]]; then
+        if [[ "${UPDATE_PRIMARY:-}" != "server" && "${UPDATE_PRIMARY:-}" != "github" ]]; then
+            echo "ERROR: UPDATE_PRIMARY must be 'server' or 'github' when both sources are set" >&2
+            exit 1
+        fi
+        if [[ "${UPDATE_PRIMARY}" == "server" ]]; then
+            UPDATE_SECONDARY="github"
+        else
+            UPDATE_SECONDARY="server"
+        fi
+    elif [[ -n "${server}" ]]; then
+        UPDATE_PRIMARY="server"
+        UPDATE_SECONDARY=""
+    else
+        UPDATE_PRIMARY="github"
+        UPDATE_SECONDARY=""
     fi
 
     NTFY_CHANNEL="${NTFY_CHANNEL:-}"
@@ -59,7 +102,7 @@ check_root() {
 }
 
 check_dependencies() {
-    local required_commands=("curl" "unzip" "openssl")
+    local required_commands=("curl" "unzip" "openssl" "awk" "grep" "sed")
     for cmd in "${required_commands[@]}"; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             echo "ERROR: Missing required dependency: $cmd" >&2
@@ -69,7 +112,7 @@ check_dependencies() {
 }
 
 # ----------------------------------------------------------------------------
-# Helper Functions
+# Helper Functions (Non-critical - set FAILURE_REASON on error)
 # ----------------------------------------------------------------------------
 
 log() {
@@ -88,12 +131,10 @@ get_node_name() {
     if [[ ! -f "${LOCAL_NODE_FILE}" ]]; then
         return 1
     fi
-
     local node_content=$(cat "${LOCAL_NODE_FILE}" 2>/dev/null | tr -d '[:space:]')
     if [[ -z "$node_content" ]]; then
         return 1
     fi
-
     echo "$node_content"
     return 0
 }
@@ -126,26 +167,32 @@ check_connectivity() {
         sleep $route_wait
     done
 
-    local max_attempts=5
+    if ! netstat -rn | grep -q '^default'; then
+        FAILURE_REASON="NETWORK_UNREACHABLE"
+        log "No default route available"
+        return 1
+    fi
+
+    local probe_attempts=5
     local attempt=1
-    while [[ $attempt -le $max_attempts ]]; do
-        if curl -s -I --connect-timeout 5 --max-time 10 "${UPDATE_SERVER}/" >/dev/null 2>&1; then
+    while [[ $attempt -le $probe_attempts ]]; do
+        if curl -s -I --connect-timeout 5 --max-time 10 "${CONNECTIVITY_PROBE}/" >/dev/null 2>&1; then
             return 0
         fi
-        log "Network connectivity check failed (attempt $attempt/$max_attempts)"
+        log "Internet connectivity check failed (attempt $attempt/$probe_attempts)"
         sleep 20
         ((attempt++))
     done
+
     FAILURE_REASON="NETWORK_UNREACHABLE"
     return 1
 }
 
 # ----------------------------------------------------------------------------
-# Update Steps
+# Source: Server
 # ----------------------------------------------------------------------------
 
-step_check_remote_version() {
-    local server="$1"
+server_check_remote_version() {
     local curl_output
     local http_code
     local max_retries=2
@@ -155,7 +202,7 @@ step_check_remote_version() {
         curl_output=$(curl -s -w "%{http_code}" -u "${AUTH_USER}:${AUTH_PASS}" \
             --connect-timeout 10 \
             --max-time 15 \
-            "${server}/version.txt" 2>/dev/null)
+            "${UPDATE_SERVER}/version.txt" 2>/dev/null)
 
         http_code=${curl_output: -3}
         curl_output=${curl_output%???}
@@ -191,49 +238,30 @@ step_check_remote_version() {
     REMOTE_VERSION=$(echo "$curl_output" | tr -d '[:space:]')
     if [[ -z "${REMOTE_VERSION}" ]]; then
         REMOTE_VERSION=""
-        return 0
     fi
-
     return 0
 }
 
-step_validate_node() {
-    local node_name
-    if ! node_name=$(get_node_name); then
-        FAILURE_REASON="NODE_NAME_MISSING"
-
-        log "Node name file missing or empty"
-
-        local config_yaml="${CONFIG_DIR}/config.yaml"
-        if [[ -f "$config_yaml" ]]; then
-            local first_line=$(head -n 1 "$config_yaml" 2>/dev/null || echo "")
-            if [[ "$first_line" == \#* ]]; then
-                log "Config hint: $first_line"
-                FAILURE_REASON="${FAILURE_REASON} (${first_line})"
-            fi
-        fi
-
-        return 1
-    fi
-    NODE_NAME="$node_name"
-    return 0
-}
-
-step_download_package() {
+server_download_package() {
     local remote_version="$1"
     local package_name="${NODE_NAME}_${remote_version}.zip.enc"
     local package_url="${UPDATE_SERVER}/${package_name}"
 
     TEMP_DIR=$(mktemp -d -t nebula-update-XXXXXX)
 
-    log "Downloading encrypted package"
+    log "Downloading encrypted package (server)"
     if ! curl -s -u "${AUTH_USER}:${AUTH_PASS}" --connect-timeout 30 -o "${TEMP_DIR}/package.enc" "${package_url}"; then
         FAILURE_REASON="DOWNLOAD_FAILED"
         log "Package download failed"
         return 1
     fi
 
-    log "Decrypting package"
+    if [[ ! -s "${TEMP_DIR}/package.enc" ]]; then
+        FAILURE_REASON="DOWNLOAD_FAILED"
+        log "Package download produced empty file"
+        return 1
+    fi
+
     if ! step_decrypt_package "${TEMP_DIR}/package.enc" "${TEMP_DIR}/package.zip"; then
         FAILURE_REASON="DECRYPTION_FAILED"
         log "Package decryption failed"
@@ -251,21 +279,155 @@ step_download_package() {
     return 0
 }
 
+# ----------------------------------------------------------------------------
+# Source: GitHub
+# ----------------------------------------------------------------------------
+
+github_fetch_release() {
+    local response
+    local http_code
+    local max_retries=2
+    local retry_count=0
+
+    GITHUB_RELEASE_JSON=""
+    GITHUB_TAG_NAME=""
+
+    while [[ $retry_count -le $max_retries ]]; do
+        response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${UPDATE_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            --connect-timeout 10 \
+            --max-time 15 \
+            "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null)
+
+        http_code=$(echo "$response" | tail -n1)
+        response=$(echo "$response" | sed '$d')
+
+        if [[ "$http_code" =~ ^[0-9]{3}$ ]] && [[ "$http_code" != "000" ]]; then
+            break
+        fi
+
+        if [[ $retry_count -lt $max_retries ]]; then
+            log "Retrying connection to GitHub..."
+            sleep 3
+        fi
+        ((retry_count++))
+    done
+
+    if [[ ! "$http_code" =~ ^[0-9]{3}$ ]] || [[ "$http_code" == "000" ]]; then
+        FAILURE_REASON="SERVER_UNREACHABLE"
+        log "GitHub unreachable after $max_retries retries"
+        return 1
+    fi
+
+    if [[ "$http_code" != "200" ]]; then
+        if [[ "$http_code" == "401" ]] || [[ "$http_code" == "403" ]] || [[ "$http_code" == "404" ]]; then
+            FAILURE_REASON="AUTH_FAILED"
+            log "GitHub authentication failed (HTTP $http_code)"
+            return 1
+        else
+            FAILURE_REASON="SERVER_UNREACHABLE"
+            log "GitHub returned HTTP $http_code"
+            return 1
+        fi
+    fi
+
+    GITHUB_RELEASE_JSON="$response"
+    GITHUB_TAG_NAME=$(printf '%s\n' "$GITHUB_RELEASE_JSON" \
+        | grep -m1 '"tag_name"' \
+        | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+
+    if [[ -z "$GITHUB_TAG_NAME" ]]; then
+        FAILURE_REASON="SERVER_UNREACHABLE"
+        log "Could not parse tag_name from GitHub response"
+        return 1
+    fi
+
+    REMOTE_VERSION="$GITHUB_TAG_NAME"
+    return 0
+}
+
+github_download_package() {
+    local remote_version="$1"
+    local asset_name="${NODE_NAME}_${remote_version}.zip.enc"
+
+    TEMP_DIR=$(mktemp -d -t nebula-update-XXXXXX)
+
+    local blocks
+    blocks=$(printf '%s\n' "$GITHUB_RELEASE_JSON" | awk '
+        /^    \{/    { block=$0; in_asset=1; next }
+        in_asset     { block = block $0 }
+        /^    \},?$/ { if (in_asset) { print block; in_asset=0 } }
+    ')
+
+    local block
+    block=$(printf '%s\n' "$blocks" | grep "\"name\": \"$asset_name\"" || true)
+
+    if [[ -z "$block" ]]; then
+        FAILURE_REASON="ASSET_NOT_FOUND"
+        log "Asset '$asset_name' not found in GitHub release $remote_version"
+        return 1
+    fi
+
+    local asset_url
+    asset_url=$(printf '%s\n' "$block" | grep -o 'https://api.github.com[^"]*/releases/assets/[0-9]*')
+
+    if [[ -z "$asset_url" ]]; then
+        FAILURE_REASON="ASSET_NOT_FOUND"
+        log "Could not extract asset URL for '$asset_name'"
+        return 1
+    fi
+
+    log "Downloading encrypted package (github)"
+    if ! curl -L -s -H "Authorization: Bearer ${UPDATE_TOKEN}" \
+         -H "Accept: application/octet-stream" \
+         --connect-timeout 30 \
+         -o "${TEMP_DIR}/package.enc" \
+         "$asset_url"; then
+        FAILURE_REASON="DOWNLOAD_FAILED"
+        log "Package download failed"
+        return 1
+    fi
+
+    if [[ ! -s "${TEMP_DIR}/package.enc" ]]; then
+        FAILURE_REASON="DOWNLOAD_FAILED"
+        log "Package download produced empty file"
+        return 1
+    fi
+
+    if ! step_decrypt_package "${TEMP_DIR}/package.enc" "${TEMP_DIR}/package.zip"; then
+        FAILURE_REASON="DECRYPTION_FAILED"
+        log "Package decryption failed"
+        return 1
+    fi
+    rm -f "${TEMP_DIR}/package.enc"
+
+    if ! unzip -q -d "${TEMP_DIR}" "${TEMP_DIR}/package.zip" 2>/dev/null; then
+        FAILURE_REASON="INVALID_PACKAGE"
+        log "Invalid or missing package"
+        return 1
+    fi
+    rm -f "${TEMP_DIR}/package.zip"
+
+    return 0
+}
+
+# ----------------------------------------------------------------------------
+# Shared Package Handling
+# ----------------------------------------------------------------------------
+
 step_decrypt_package() {
     local encrypted_file="$1"
     local output_file="$2"
-
     if [[ ! -f "$encrypted_file" ]] || [[ ! -r "$encrypted_file" ]]; then
         log "ERROR: Encrypted file not found or not readable"
         return 1
     fi
-
     local file_size=$(stat -f%z "$encrypted_file" 2>/dev/null)
     if [[ $file_size -lt 16 ]]; then
         log "ERROR: Encrypted file too small"
         return 1
     fi
-
     if openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
         -in "$encrypted_file" \
         -out "$output_file" \
@@ -276,6 +438,28 @@ step_decrypt_package() {
         log "ERROR: openssl decryption failed"
         return 1
     fi
+}
+
+# ----------------------------------------------------------------------------
+# Update Steps
+# ----------------------------------------------------------------------------
+
+step_validate_node() {
+    local node_name
+    if ! node_name=$(get_node_name); then
+        FAILURE_REASON="NODE_NAME_MISSING"
+        log "Node name file missing or empty"
+        local config_yaml="${CONFIG_DIR}/config.yaml"
+        if [[ -f "$config_yaml" ]]; then
+            local first_line=$(head -n 1 "$config_yaml" 2>/dev/null || echo "")
+            if [[ "$first_line" == \#* ]]; then
+                FAILURE_REASON="${FAILURE_REASON} (${first_line})"
+            fi
+        fi
+        return 1
+    fi
+    NODE_NAME="$node_name"
+    return 0
 }
 
 step_create_backup() {
@@ -432,16 +616,39 @@ cleanup_backup() {
     fi
 }
 
+notify_ntfy() {
+    local priority="$1"
+    local tags="$2"
+    local message="$3"
+
+    if [[ -z "${NTFY_CHANNEL:-}" ]]; then
+        return 0
+    fi
+
+    local channel_clean=$(echo "${NTFY_CHANNEL}" | tr -d '[:space:]')
+    if [[ -z "$channel_clean" ]]; then
+        return 0
+    fi
+
+    local ntfy_url="https://ntfy.sh/${channel_clean}"
+    echo "$message" | \
+        curl -H "Title: ${NODE_NAME} @ @@tun_device@@" \
+             -H "Tags:${tags}" \
+             -H "Priority:${priority}" \
+             --data-binary @- "${ntfy_url}" >/dev/null 2>&1 || true
+}
+
 report_result() {
     local result_code="$1"
-    local result_text=""
     local nebula_version=$(get_nebula_version)
+    local result_text=""
 
     case $result_code in
         0) result_text="success" ;;
         1) result_text="no_update" ;;
         2) result_text="error" ;;
         3) result_text="interrupted" ;;
+        4) result_text="offline" ;;
     esac
 
     local status_dir="/var/run/nebula/@@tun_device@@"
@@ -453,51 +660,34 @@ report_result() {
 "previous": "$OLD_VERSION",
 "current": "$REMOTE_VERSION",
 "nebula": "$nebula_version",
+"source": "$SOURCE_USED",
 "failure_reason": "$FAILURE_REASON",
 "timestamp": "$(date -Iseconds)"
 }
 EOF
-
     chmod 755 "$status_dir" 2>/dev/null || true
     chmod 644 "${status_dir}/update-status.json" 2>/dev/null || true
 
-    if [[ -n "${NTFY_CHANNEL:-}" ]]; then
-        local channel_clean=$(echo "${NTFY_CHANNEL}" | tr -d '[:space:]')
-        if [[ -n "$channel_clean" ]]; then
-            local ntfy_url="https://ntfy.sh/${channel_clean}"
-            local message=""
-            local tags=""
-            local priority=""
-
-            case $result_code in
-                0) 
-                    message="Updated: ${OLD_VERSION} → ${REMOTE_VERSION}"$'\n'"Nebula: ${nebula_version}"
-                    tags="white_check_mark"
-                    priority="3"
-                    ;;
-                2) 
-                    if [[ -n "$REMOTE_VERSION" ]]; then
-                        message="Update to ${REMOTE_VERSION} FAILED"
-                    else
-                        message="Update FAILED"
-                    fi
-
-                    message="${message}"$'\n'"Node: ${NODE_NAME}"$'\n'"Reason: ${FAILURE_REASON}"
-                    message="${message}"$'\n'"Nebula: ${nebula_version}"
-                    tags="warning"
-                    priority="4"
-                    ;;
-            esac
-
-            if [[ -n "$message" ]]; then
-                echo "$message" | \
-                    curl -H "Title: ${NODE_NAME} @ @@tun_device@@" \
-                         -H "Tags:${tags}" \
-                         -H "Priority:${priority}" \
-                         --data-binary @- "${ntfy_url}" >/dev/null 2>&1 || true
+    case $result_code in
+        0)
+            notify_ntfy "3" "white_check_mark" \
+                "Updated: ${OLD_VERSION} → ${REMOTE_VERSION}"$'\n'"Source: ${SOURCE_USED}"$'\n'"Nebula: ${nebula_version}"
+            ;;
+        2)
+            local msg
+            if [[ -n "$REMOTE_VERSION" ]]; then
+                msg="Update to ${REMOTE_VERSION} FAILED"
+            else
+                msg="Update FAILED"
             fi
-        fi
-    fi
+            msg="${msg}"$'\n'"Node: ${NODE_NAME}"$'\n'"Reason: ${FAILURE_REASON}"
+            if [[ -n "$SOURCE_USED" ]]; then
+                msg="${msg}"$'\n'"Source: ${SOURCE_USED}"
+            fi
+            msg="${msg}"$'\n'"Nebula: ${nebula_version}"
+            notify_ntfy "4" "warning" "$msg"
+            ;;
+    esac
 }
 
 # ----------------------------------------------------------------------------
@@ -507,16 +697,34 @@ EOF
 handle_interruption() {
     log "Update interrupted"
     FAILURE_REASON="INTERRUPTED"
-
     if [[ "$BACKUP_CREATED" == true ]]; then
         step_restore_backup
     fi
-
     cleanup_temp
     cleanup_backup
-
     report_result 3
     exit 3
+}
+
+try_source_version() {
+    local source="$1"
+    FAILURE_REASON=""
+    REMOTE_VERSION=""
+    if [[ "$source" == "server" ]]; then
+        server_check_remote_version
+    else
+        github_fetch_release
+    fi
+}
+
+try_source_download() {
+    local source="$1"
+    local version="$2"
+    if [[ "$source" == "server" ]]; then
+        server_download_package "$version"
+    else
+        github_download_package "$version"
+    fi
 }
 
 main() {
@@ -530,53 +738,81 @@ main() {
     # Get node name early for reporting
     NODE_NAME=$(get_node_name || echo "UNKNOWN")
 
-    # Check network connectivity before proceeding
     if ! check_connectivity; then
-        report_result 2
-        log "Network connectivity check failed"
-        exit 2
+        log "Node offline - will retry next cycle"
+        report_result 4
+        exit 0
     fi
 
     OLD_VERSION=$(get_local_version)
 
-    # Step 1: Check remote version
-    if ! step_check_remote_version "$UPDATE_SERVER"; then
-        report_result 2
-        log "Update failed: $FAILURE_REASON"
-        exit 2
+    # ------------------------------------------------------------------------
+    # Try primary source, fall back to secondary on transport/auth failure
+    # ------------------------------------------------------------------------
+    local primary="$UPDATE_PRIMARY"
+    local secondary="$UPDATE_SECONDARY"
+
+    SOURCE_USED="$primary"
+    if ! try_source_version "$primary"; then
+        if [[ -n "$secondary" ]]; then
+            log "Primary source ($primary) failed: $FAILURE_REASON - trying $secondary"
+            notify_ntfy "2" "warning" \
+                "Primary source ($primary) failed: $FAILURE_REASON"$'\n'"Trying $secondary"
+            FAILURE_REASON=""
+            SOURCE_USED="$secondary"
+            if ! try_source_version "$secondary"; then
+                report_result 2
+                log "Update failed: $FAILURE_REASON"
+                exit 2
+            fi
+        else
+            report_result 2
+            log "Update failed: $FAILURE_REASON"
+            exit 2
+        fi
     fi
 
-    # Check if we got a remote version
+    # ------------------------------------------------------------------------
+    # Evaluate version
+    # ------------------------------------------------------------------------
     if [[ -z "$REMOTE_VERSION" ]]; then
-        log "No update available (no version.txt on server)"
-        report_result 1  # no_update
+        log "No update available (no version on $SOURCE_USED)"
+        report_result 1
         exit 1
     fi
 
-    # Check if update needed
     if [[ "$OLD_VERSION" == "$REMOTE_VERSION" ]]; then
         log "Already at version $OLD_VERSION"
-        report_result 1  # no_update
+        report_result 1
         exit 1
     fi
 
-    log "Updating: $OLD_VERSION → $REMOTE_VERSION"
+    log "Updating: $OLD_VERSION → $REMOTE_VERSION (via $SOURCE_USED)"
 
-    # Step 2: Validate node name
+    # ------------------------------------------------------------------------
+    # Validate node name
+    # ------------------------------------------------------------------------
     if ! step_validate_node; then
         report_result 2
         log "Update failed: $FAILURE_REASON"
         exit 2
     fi
 
-    # Step 3: Download package
-    if ! step_download_package "$REMOTE_VERSION"; then
+    # ------------------------------------------------------------------------
+    # Download (no fallback on ASSET_NOT_FOUND)
+    # ------------------------------------------------------------------------
+    if ! try_source_download "$SOURCE_USED" "$REMOTE_VERSION"; then
+        if [[ "$FAILURE_REASON" == "ASSET_NOT_FOUND" ]]; then
+            log "Asset not found in release - not falling back"
+        fi
         report_result 2
         log "Update failed: $FAILURE_REASON"
         exit 2
     fi
 
-    # Step 4: Create backup
+    # ------------------------------------------------------------------------
+    # Backup
+    # ------------------------------------------------------------------------
     if ! step_create_backup; then
         cleanup_temp
         report_result 2
@@ -584,7 +820,9 @@ main() {
         exit 2
     fi
 
-    # Step 5: Apply update
+    # ------------------------------------------------------------------------
+    # Apply
+    # ------------------------------------------------------------------------
     if ! step_apply_update "$TEMP_DIR"; then
         step_restore_backup
         cleanup_temp
@@ -594,7 +832,9 @@ main() {
         exit 2
     fi
 
-    # Step 6: Verify update
+    # ------------------------------------------------------------------------
+    # Verify
+    # ------------------------------------------------------------------------
     if ! step_verify_update "$REMOTE_VERSION"; then
         step_restore_backup
         cleanup_temp
@@ -604,16 +844,19 @@ main() {
         exit 2
     fi
 
-    # Step 7: Check service (warning only)
+    # ------------------------------------------------------------------------
+    # Check service (warning only)
+    # ------------------------------------------------------------------------
     step_check_service || true
 
-    # Step 8: Trim logs
+    # ------------------------------------------------------------------------
+    # Trim logs
+    # ------------------------------------------------------------------------
     step_trim_logs
 
     # Success
     cleanup_temp
     cleanup_backup
-
     log "Update completed"
     report_result 0
     exit 0
