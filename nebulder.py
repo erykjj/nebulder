@@ -107,9 +107,13 @@ def copy_files(dest_path, device, op_sys, lighthouse=False):
         if not password:
             cprint(f"*** ERROR: Device '{device['name']}' missing update_password!", color='red')
             exit(1)
+        lines = []
         with open(update_conf, 'r') as f:
-            content = f.read()
-        content = content.rstrip()
+            for line in f:
+                if re.match(r'^\s*GITHUB_TOKEN\s*=', line):
+                    continue
+                lines.append(line.rstrip('\n'))
+        content = '\n'.join(lines).rstrip()
         content += f'\nUPDATE_PASS="{password}"\n'
         dest_update_conf = dest_path / 'update.conf'
         with open(dest_update_conf, 'w') as f:
@@ -326,6 +330,91 @@ def process_nodes():
             node_file.write_text(f"node_{node['name']}")
             zip_package(f"node_{node['name']}", node['update_password'])
 
+
+def publish_release(version, update_conf, root_path):
+    repo = update_conf.get('GITHUB_REPO')
+    token = update_conf.get('GITHUB_TOKEN')
+    if not repo or not token:
+        return
+
+    api_base = f"https://api.github.com/repos/{repo}"
+
+    def curl(args_list, capture=False):
+        cmd = ['curl', '-s', '-H', f'Authorization: Bearer {token}',
+               '-H', 'Accept: application/vnd.github+json'] + args_list
+        result = run(cmd, stdout=PIPE, stderr=PIPE)
+        if capture:
+            return result.stdout.decode('utf-8', errors='replace')
+        return result.returncode
+
+    cprint(f"\nPublishing release '{version}' to {repo}", color='magenta', bold=True)
+
+    release_json = curl(['-w', '\n%{http_code}', f'{api_base}/releases/tags/{version}'], capture=True)
+    lines = release_json.rsplit('\n', 1)
+    if len(lines) != 2:
+        cprint('*** ERROR: could not parse release lookup response', color='red')
+        return
+    body, status = lines[0], lines[1].strip()
+    release_id = None
+
+    if status == '200':
+        print(f'   Release already exists')
+        release_id = json.loads(body)['id']
+    elif status == '404':
+        create_body = json.dumps({'tag_name': version, 'name': version})
+        create_out = curl(['-X', 'POST', '-w', '\n%{http_code}',
+                           '-H', 'Content-Type: application/json',
+                           '-d', create_body,
+                           f'{api_base}/releases'], capture=True)
+        c_lines = create_out.rsplit('\n', 1)
+        if len(c_lines) != 2 or c_lines[1].strip() != '201':
+            cprint(f'*** ERROR: failed to create release (HTTP {c_lines[1].strip() if len(c_lines)==2 else "?"})', color='red')
+            return
+        release_id = json.loads(c_lines[0])['id']
+    else:
+        cprint(f'*** ERROR: release lookup returned HTTP {status}', color='red')
+        return
+
+    existing = {}
+    assets_json = curl([f'{api_base}/releases/{release_id}/assets?per_page=100'], capture=True)
+    try:
+        for asset in json.loads(assets_json):
+            existing[asset['name']] = asset['id']
+    except Exception:
+        pass
+
+    uploaded = 0
+    replaced = 0
+    failed = 0
+    for pkg in sorted(root_path.glob(f'*_{version}.zip.enc')):
+        name = pkg.name
+        if name in existing:
+            curl(['-X', 'DELETE', f'{api_base}/releases/assets/{existing[name]}'])
+            replaced += 1
+            action = 'Replaced'
+        else:
+            uploaded += 1
+            action = 'Uploaded'
+        upload_out = curl(['-X', 'POST',
+                           '-H', 'Content-Type: application/octet-stream',
+                           '--data-binary', f'@{pkg}',
+                           '-w', '\n%{http_code}',
+                           f'https://uploads.github.com/repos/{repo}/releases/{release_id}/assets?name={name}'],
+                          capture=True)
+        u_lines = upload_out.rsplit('\n', 1)
+        status = u_lines[1].strip() if len(u_lines) == 2 else '?'
+        if status == '201':
+            print(f'   {action}: {name}')
+        else:
+            cprint(f'   FAILED ({status}): {name}', color='red')
+            failed += 1
+
+    summary = f'   {uploaded} uploaded, {replaced} replaced'
+    if failed:
+        summary += f', {failed} failed'
+    print(summary)
+
+
 def load_resources():
     res_path = Path(__file__).resolve().parent / 'res'
     base_config_path = res_path / 'config.yaml'
@@ -440,7 +529,7 @@ def validate_update_conf(output_dir):
     conf_path = Path(output_dir) / 'update.conf'
     if not conf_path.exists():
         print('Update config: none (auto-update disabled)\n')
-        return
+        return {}
 
     values = parse_conf(conf_path)
     if not values:
@@ -468,6 +557,11 @@ def validate_update_conf(output_dir):
             errors.append(f"GITHUB_REPO '{github}' invalid (must be 'owner/repo')")
         if not values.get('GITHUB_TOKEN'):
             errors.append("GITHUB_TOKEN required when GITHUB_REPO is set")
+        if not values.get('UPDATE_TOKEN'):
+            errors.append("UPDATE_TOKEN required when GITHUB_REPO is set")
+        if values.get('GITHUB_TOKEN') and values.get('GITHUB_TOKEN') == values.get('UPDATE_TOKEN'):
+            cprint('*** WARNING: GITHUB_TOKEN and UPDATE_TOKEN are identical', color='yellow')
+            print('   The read-write token will be shipped to nodes')
 
     if primary:
         if primary not in ('server', 'github'):
@@ -500,6 +594,8 @@ def validate_update_conf(output_dir):
         sources.append('github')
     primary_label = primary if primary else sources[0]
     print(f'Update config OK (sources: {", ".join(sources)}, primary: {primary_label})\n')
+
+    return values
 
 def process_config(config_path, output_dir):
 
@@ -558,7 +654,7 @@ def process_config(config_path, output_dir):
     print(f'\nMesh network: {tun_device}')
     print(f'IP network: {network_base}')
     print(f'Total devices: {len(all_ips)}\n')
-    validate_update_conf(output_dir)
+    update_conf = validate_update_conf(output_dir)
     if not args['V']:
         args['V'] = get_version(root_path)
     version_file = root_path / 'version.txt'
@@ -573,6 +669,8 @@ def process_config(config_path, output_dir):
     lighthouse_ips = []
     process_lighthouses()
     process_nodes()
+    if args['Z'] and update_conf.get('GITHUB_REPO'):
+        publish_release(args['V'], update_conf, root_path)
     cprint('\nCompleted successfully', color='green')
     print(f'   Deployment packages in {root_path}\n')
     print('='*75)
