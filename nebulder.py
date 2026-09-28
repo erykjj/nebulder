@@ -681,7 +681,7 @@ parser = argparse.ArgumentParser(description='Generate Nebula configs based on a
 parser.add_argument('-v', '--version', action='version', version=f'{APP} {VERSION}')
 parser.add_argument('outline', help='Network outline (YAML format)')
 parser.add_argument('-o', metavar='directory', help='Output directory (defaults to dir where outline is located)')
-parser.add_argument('-Z', action='store_true', help='Zip and encrypt packages (for auto-update)')
+parser.add_argument('-Z', action='store_true', help='Zip and encrypt packages, and upload to GitHub if configured (for auto-update)')
 parser.add_argument('-V', metavar='id', help='Config version number or id (optional)')
 args = vars(parser.parse_args())
 if args['o']:
