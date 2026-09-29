@@ -30,7 +30,7 @@ APP = 'nebulder'
 VERSION = 'v3.0.0'
 
 
-import argparse, ipaddress, json, re, secrets, shutil, string, yaml
+import argparse, ipaddress, json, re, secrets, shutil, string, time, yaml
 from copy import deepcopy
 from pathlib import Path
 from subprocess import run, PIPE
@@ -395,15 +395,39 @@ def publish_release(version, update_conf, root_path):
         else:
             uploaded += 1
             action = 'Uploaded'
-        upload_out = curl(['-X', 'POST',
-                           '-H', 'Content-Type: application/octet-stream',
-                           '--data-binary', f'@{pkg}',
-                           '-w', '\n%{http_code}',
-                           f'https://uploads.github.com/repos/{repo}/releases/{release_id}/assets?name={name}'],
-                          capture=True)
-        u_lines = upload_out.rsplit('\n', 1)
-        status = u_lines[1].strip() if len(u_lines) == 2 else '?'
-        if status == '201':
+
+        max_attempts = 3
+        status = '?'
+        success = False
+        for attempt in range(1, max_attempts + 1):
+            upload_out = curl(['-X', 'POST',
+                               '-H', 'Content-Type: application/octet-stream',
+                               '--data-binary', f'@{pkg}',
+                               '-w', '\n%{http_code}',
+                               f'https://uploads.github.com/repos/{repo}/releases/{release_id}/assets?name={name}'],
+                              capture=True)
+            u_lines = upload_out.rsplit('\n', 1)
+            status = u_lines[1].strip() if len(u_lines) == 2 else '?'
+
+            if status == '201':
+                success = True
+                break
+
+            if status in ('502', '503', '504') and attempt < max_attempts:
+                print(f'   Retry {attempt}/{max_attempts - 1} ({status}): {name}')
+                assets_check = curl([f'{api_base}/releases/{release_id}/assets?per_page=100'], capture=True)
+                try:
+                    for a in json.loads(assets_check):
+                        if a['name'] == name:
+                            curl(['-X', 'DELETE', f"{api_base}/releases/assets/{a['id']}"])
+                except Exception:
+                    pass
+                time.sleep(5 * attempt)
+                continue
+
+            break
+
+        if success:
             print(f'   {action}: {name}')
         else:
             cprint(f'   FAILED ({status}): {name}', color='red')
