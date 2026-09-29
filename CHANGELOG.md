@@ -4,17 +4,26 @@
 
 ### Added
 
-- Use a private GitHub repo for updating
+### Changed
+
+### Fixed
+
+### Removed
+
+____
+## [3.0.0] - 2026-09-28
+### Added
+
+- Added ability to **use a private GitHub repo for auto-updating**
 
 ### Changed
+
+- Added parameter passing
 
 ### Fixed
 
 - Fix hardcoded network name in one of the Mac scripts
 
-### Removed
-
-____
 ## [2.3.1] - 2026-09-02
 ### Changed
 
@@ -131,6 +140,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[3.0.0]: https://github.com/erykjj/nebulder/releases/tag/v3.0.0
 [2.3.1]: https://github.com/erykjj/nebulder/releases/tag/v2.3.1
 [2.3.0]: https://github.com/erykjj/nebulder/releases/tag/v2.3.0
 [2.2.1]: https://github.com/erykjj/nebulder/releases/tag/v2.2.1
