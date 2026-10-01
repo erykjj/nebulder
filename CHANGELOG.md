@@ -11,6 +11,11 @@
 ### Removed
 
 ____
+## [3.1.0] - 2026-10-01
+### Changed
+
+- Code refactor: split off validators into separate function
+
 ## [3.0.0] - 2026-09-28
 ### Added
 
@@ -140,6 +145,7 @@ Initial release
 
 ____
 [Unreleased]: https://github.com/erykjj/nebulder
+[3.1.0]: https://github.com/erykjj/nebulder/releases/tag/v3.1.0
 [3.0.0]: https://github.com/erykjj/nebulder/releases/tag/v3.0.0
 [2.3.1]: https://github.com/erykjj/nebulder/releases/tag/v2.3.1
 [2.3.0]: https://github.com/erykjj/nebulder/releases/tag/v2.3.0
