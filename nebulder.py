@@ -27,7 +27,7 @@
 """
 
 APP = 'nebulder'
-VERSION = 'v3.0.0'
+VERSION = 'v3.1.0'
 
 
 import argparse, ipaddress, json, re, secrets, shutil, string, time, yaml
@@ -76,6 +76,116 @@ def cert_date(cert_path):
         cert_data = json.loads(cert.stdout)
     not_after = cert_data['details']['notAfter']
     return not_after
+
+def rule_name(value):
+    if not value:
+        return 'Required'
+    if not re.match(r'^[a-zA-Z0-9_\-]+$', value):
+        return 'Only letters, numbers, hyphens, underscores'
+    return None
+
+def rule_ip(value):
+    if not value:
+        return 'Required'
+    try:
+        ip = ipaddress.IPv4Address(value)
+    except ValueError as e:
+        return f'Invalid IPv4 address ({e})'
+    if not (ip.is_private or
+            (ipaddress.IPv4Address('100.64.0.0') <= ip <= ipaddress.IPv4Address('100.127.255.255'))):
+        return 'Must be private (10/8, 100.64/10, 172.16/12, 192.168/16)'
+    last = int(value.split('.')[-1])
+    if last == 0 or last == 255:
+        return 'Avoid .0 or .255 as last octet'
+    return None
+
+def rule_tun_device(value):
+    if not value:
+        return 'Required'
+    if not re.match(r'^[a-zA-Z0-9_\-]+$', value):
+        return 'Only letters, numbers, hyphens, underscores'
+    if value.startswith('-') or value.endswith('-'):
+        return 'Cannot start or end with hyphen'
+    return None
+
+def rule_port(value):
+    if value == '' or value is None:
+        return None
+    if not str(value).isdigit():
+        return 'Must be numeric'
+    p = int(value)
+    if p < 1 or p > 65535:
+        return 'Must be 1-65535'
+    return None
+
+def rule_public_ip(value):
+    lines = [ln.strip() for ln in value.splitlines() if ln.strip()]
+    if not lines:
+        return 'At least one address required'
+    for ln in lines:
+        try:
+            ipaddress.ip_address(ln)
+            continue
+        except ValueError:
+            pass
+        if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$', ln):
+            return f'Invalid address or hostname: {ln}'
+    return None
+
+def rule_groups(value):
+    parts = [g.strip() for g in value.split(',') if g.strip()]
+    for g in parts:
+        if not re.match(r'^[a-zA-Z0-9_\-]+$', g):
+            return f'Invalid group name: {g}'
+    return None
+
+def rule_preferred_ranges(value):
+    parts = [r.strip() for r in value.split(',') if r.strip()]
+    for r in parts:
+        try:
+            ipaddress.ip_network(r, strict=False)
+        except ValueError:
+            return f'Invalid CIDR: {r}'
+    return None
+
+def rule_advertise_addrs(value):
+    if not value:
+        return None
+    try:
+        ipaddress.ip_address(value)
+        return None
+    except ValueError:
+        pass
+    if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$', value):
+        return 'Invalid address or hostname'
+    return None
+
+def rule_github_repo(value):
+    if not value:
+        return None
+    if not re.match(r'^[^/]+/[^/]+$', value):
+        return "Must be 'owner/repo'"
+    return None
+
+def rule_update_primary(value, has_server, has_github):
+    if not value:
+        if has_server and has_github:
+            return 'Required when both sources are set'
+        return None
+    if value not in ('server', 'github'):
+        return "Must be 'server' or 'github'"
+    if value == 'server' and not has_server:
+        return "UPDATE_PRIMARY is 'server' but UPDATE_SERVER is not set"
+    if value == 'github' and not has_github:
+        return "UPDATE_PRIMARY is 'github' but GITHUB_REPO is not set"
+    return None
+
+def rule_ntfy_channel(value):
+    if not value:
+        return None
+    if re.search(r'\s', value) or '/' in value:
+        return 'Must not contain whitespace or "/"'
+    return None
 
 def generate_certificate_authority(conf_path, mesh):
     ca_crt = conf_path / f"{mesh['tun_device']}_ca.crt"
@@ -454,74 +564,60 @@ def load_resources():
 
 def validate_names_and_ips(mesh):
 
-    def validate_device_name(name, device_type):
-        if not name:
-            cprint(f"*** ERROR: {device_type} missing 'name' field!", color='red')
+    def process_device(device, device_type, index):
+        device_name = device.get('name')
+        err = rule_name(device_name)
+        if err:
+            cprint(f"*** ERROR: {device_type} {index}: {err} ('{device_name}')", color='red')
             exit(1)
-        if not re.match(r'^[a-zA-Z0-9_\-]+$', name):
-            cprint(f"*** ERROR: Invalid {device_type} name '{name}'!", color='red')
-            print('   Must contain only letters, numbers, hyphens, and underscores')
-            exit(1)
-        if name in used_names:
-            cprint(f"*** ERROR: Duplicate name '{name}'!", color='red')
+        if device_name in used_names:
+            cprint(f"*** ERROR: Duplicate name '{device_name}'!", color='red')
             print('   All device names must be unique')
             exit(1)
-        used_names.add(name)
-        return name
+        used_names.add(device_name)
 
-    def process_device(device, device_type, index):
-        device_name = validate_device_name(device.get('name'), f'{device_type} {index}')
         nebula_ip = device.get('nebula_ip')
-        if not nebula_ip:
-            cprint(f"*** ERROR: {device_type} '{device_name}' missing 'nebula_ip'!", color='red')
-            exit(1)
-        try:
-            ip_obj = ipaddress.IPv4Address(nebula_ip)
-            if not (ip_obj.is_private or (ip_obj >= ipaddress.IPv4Address('100.64.0.0') and ip_obj <= ipaddress.IPv4Address('100.127.255.255'))):
-                cprint(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' is not acceptable!", color='red')
+        err = rule_ip(nebula_ip)
+        if err:
+            cprint(f"*** ERROR: {device_type} '{device_name}': {err} ('{nebula_ip}')", color='red')
+            if err.startswith('Must be private'):
                 print('   Must be in ranges: 10.0.0.0/8, 100.64.0.0/10, 172.16.0.0/12, or 192.168.0.0/16')
-                exit(1)
-            last_octet = int(nebula_ip.split('.')[-1])
-            if last_octet == 0 or last_octet == 255:
-                cprint(f"*** ERROR: {device_type} '{device_name}' IP '{nebula_ip}' may be network or broadcast address!", color='red')
+            elif err.startswith('Avoid'):
                 print('   Avoid .0 or .255 as last octet for /24 networks')
-                exit(1)
-            return device_name, nebula_ip, ipaddress.IPv4Network(f'{nebula_ip}/24', strict=False)
-        except (ipaddress.AddressValueError, ValueError) as e:
-            cprint(f"*** ERROR: {device_type} '{device_name}' has invalid IP '{nebula_ip}': {e}", color='red')
             exit(1)
+
+        return device_name, nebula_ip, ipaddress.IPv4Network(f'{nebula_ip}/24', strict=False)
 
     tun_device = mesh.get('tun_device')
-    if not tun_device:
-        cprint("*** ERROR: Missing 'tun_device' in mesh configuration!", color='red')
+    err = rule_tun_device(tun_device)
+    if err:
+        cprint(f"*** ERROR: tun_device: {err} ('{tun_device}')", color='red')
         exit(1)
-    if not re.match(r'^[a-zA-Z0-9_\-]+$', tun_device):
-        cprint(f"*** ERROR: Invalid tun_device name '{tun_device}'!", color='red')
-        print('   Must contain only letters, numbers, hyphens, and underscores')
-        exit(1)
-    if tun_device.startswith('-') or tun_device.endswith('-'):
-        cprint(f"*** ERROR: Invalid tun_device name '{tun_device}'!", color='red')
-        print('   Cannot start or end with hyphen')
-        exit(1)
+
     used_names = set()
     all_ips = []
     networks = []
+
     if 'lighthouses' not in mesh or not mesh['lighthouses']:
         cprint('*** ERROR: At least one lighthouse is required!', color='red')
         exit(1)
+
     for i, lighthouse in enumerate(mesh['lighthouses']):
         _, ip, network = process_device(lighthouse, 'Lighthouse', i+1)
         all_ips.append(ip)
         networks.append(network)
+
     if 'nodes' in mesh:
         for i, node in enumerate(mesh['nodes']):
             _, ip, network = process_device(node, 'Node', i+1)
             all_ips.append(ip)
             networks.append(network)
+
     if len(set(all_ips)) != len(all_ips):
         cprint('*** ERROR: Duplicate IP addresses found!', color='red')
         print('   All devices must have unique IP addresses')
         exit(1)
+
     network_base = networks[0] if networks else None
     for i, network in enumerate(networks):
         if network != network_base:
@@ -530,6 +626,7 @@ def validate_names_and_ips(mesh):
             cprint(f"*** ERROR: {device_type} {index} IP is not in the same /24 network!", color='red')
             print(f'   All devices must be in {network_base} network')
             exit(1)
+
     return tun_device, network_base, all_ips
 
 def validate_update_conf(output_dir):
@@ -578,8 +675,9 @@ def validate_update_conf(output_dir):
             errors.append("AUTH_PASS required when UPDATE_SERVER is set")
 
     if github:
-        if not re.match(r'^[^/]+/[^/]+$', github):
-            errors.append(f"GITHUB_REPO '{github}' invalid (must be 'owner/repo')")
+        err = rule_github_repo(github)
+        if err:
+            errors.append(f"GITHUB_REPO: {err}")
         if not values.get('GITHUB_TOKEN'):
             errors.append("GITHUB_TOKEN required when GITHUB_REPO is set")
         if not values.get('UPDATE_TOKEN'):
@@ -588,23 +686,16 @@ def validate_update_conf(output_dir):
             cprint('*** WARNING: GITHUB_TOKEN and UPDATE_TOKEN are identical', color='yellow')
             print('   The read-write token will be shipped to nodes')
 
-    if primary:
-        if primary not in ('server', 'github'):
-            errors.append(f"UPDATE_PRIMARY '{primary}' invalid (must be 'server' or 'github')")
-        elif primary == 'server' and not server:
-            errors.append("UPDATE_PRIMARY is 'server' but UPDATE_SERVER is not set")
-        elif primary == 'github' and not github:
-            errors.append("UPDATE_PRIMARY is 'github' but GITHUB_REPO is not set")
-    else:
-        if server and github:
-            errors.append("UPDATE_PRIMARY required when both UPDATE_SERVER and GITHUB_REPO are set")
+    err = rule_update_primary(primary, bool(server), bool(github))
+    if err:
+        errors.append(f"UPDATE_PRIMARY: {err}")
 
     if 'UPDATE_PASS' in values:
         errors.append("UPDATE_PASS must not be set in update.conf (added automatically per device)")
 
-    ntfy = values.get('NTFY_CHANNEL')
-    if ntfy and (re.search(r'\s', ntfy) or '/' in ntfy):
-        cprint(f'*** WARNING: NTFY_CHANNEL "{ntfy}" looks unusual', color='yellow')
+    err = rule_ntfy_channel(values.get('NTFY_CHANNEL'))
+    if err:
+        cprint(f'*** WARNING: NTFY_CHANNEL: {err}', color='yellow')
 
     if errors:
         cprint('*** ERROR: invalid update.conf', color='red')
